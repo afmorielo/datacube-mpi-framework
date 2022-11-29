@@ -46,7 +46,7 @@ void BlockCube::solveInquirePointQuery(std::vector<std::vector<int> >& arr, int 
         // in that array
         int next = n - 1;
         while (next >= 0 &&
-              (indices[next] + 1 >= arr[next].size())){
+              (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= arr[next].size())){
             next--;
         }
 
@@ -133,13 +133,13 @@ int smallSetInd = 0;  // Initialize index of smallest set
 int minSize = sets[0].size(); // Initialize size of smallest set
 
 // sort all the sets, and also find the smallest set
-for (int i = 1 ; i < sets.size() ; i++)
+for (int i = 1 ; static_cast<std::vector<int>::size_type>(i) < sets.size() ; i++)
 {
     // sort this set
     //sort(sets[i].begin(), sets[i].end());
 
     // update minSize, if needed
-    if (minSize > sets[i].size())
+    if (static_cast<std::vector<int>::size_type>(minSize) > sets[i].size())
     {
         minSize = sets[i].size();
         smallSetInd = i;
@@ -150,7 +150,7 @@ std::map<int,int> elementsMap;
 
 // Add all the elements of smallest set to a map, if already present,
 // update the frequency
-for (int i = 0; i < sets[smallSetInd].size(); i++)
+for (int i = 0; static_cast<std::vector<int>::size_type>(i) < sets[smallSetInd].size(); i++)
 {
     if (elementsMap.find( sets[smallSetInd][i] ) == elementsMap.end())
         elementsMap[ sets[smallSetInd][i] ] = 1;
@@ -169,7 +169,7 @@ for (it = elementsMap.begin(); it != elementsMap.end(); ++it)
     bool bFound = true;
 
     // Iterate through all sets
-    for (int j = 0 ; j < sets.size() ; j++)
+    for (int j = 0 ; static_cast<std::vector<int>::size_type>(j) < sets.size() ; j++)
     {
         // If this set is not the smallest set, then do binary search in it
         if (j != smallSetInd)
@@ -441,7 +441,7 @@ void BlockCube::solveInquireQuery(std::vector<int> q, int my_rank, int num_dims,
 			tbroadcastall += std::chrono::duration_cast<std::chrono::microseconds> (end_broadcast - begin_broadcast).count();
 
 			if(my_rank != i){
-				for(int k=0; k<my_queries.size(); k++){
+				for(int k=0; static_cast<std::vector<int>::size_type>(k)<my_queries.size(); k++){
 					if(my_queries[k] == q){
 						my_queries.erase(my_queries.begin() + k);
 					}
