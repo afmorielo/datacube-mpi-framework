@@ -479,8 +479,24 @@ BlockCube::operator=(const BlockCube&)
         return *this;
 }
 
+/**
+ * Computa um cubo de dados - essa é uma função fixa do framework
+ *
+ * @param cube_table o nome de arquivo para o dataset
+ * @param num_dims número de dimensões do dataset
+ * @param num_meas número de medidas do dataset
+ * @param tuple_partition_size o tamanho da partição (por tuplas)
+ * @param dim_partition_size o tamanho da partição (por dimensões)
+ * @param reading_rate a taxa de leitura do disco usada pelos processos
+ * @param tbloc variável específica do algoritmo bCubing
+ * @param output_folder arquivo de saída, se o cubo for escrito em disco
+ * @param my_rank o rank MPI do processo atual
+ * @param queries as consultas que serão executadas
+ * @param on_demand booleano que determina se a computação será feita "on-demand"eiros.
+ *
+ */
 void BlockCube::ComputeCube(std::string cube_table, int num_dims,
-                int num_meas, int partition_size, int reading_rate, int tbloc, std::string output_folder, int my_rank,
+                int num_meas, int tuple_partition_size, int dim_partition_size, int reading_rate, int tbloc, std::string output_folder, int my_rank,
                 std::vector<std::vector<int>> queries, bool on_demand)
 {
 
@@ -495,7 +511,7 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
         int tuples_read = 0; //Conta quantas tuplas foram lidas
         int buffer_read = 0; //Conta quantas vezes o buffer de leitura foi preenchido
-        int read_increment = partition_size / reading_rate; //Lê a partição com base na taxa de ingestão
+        int read_increment = tuple_partition_size / reading_rate; //Lê a partição com base na taxa de ingestão
         int bid = 0; //BID inicial
         int bid_tuples = 0; //Quantidade de tuplas no bloco identificado por BID
 
@@ -524,13 +540,13 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
         }
 
         //Enquanto não ler todas as tuplas dessa partição
-        while (tuples_read < partition_size)
+        while (tuples_read < tuple_partition_size)
         {
         		//Verifica se na próxima leitura que vai fazer não irá passar do tamanho máximo da partição
         		//Se necessário, reduz o incremento e o buffer de leitura
-                if ((tuples_read + read_increment) > partition_size)
+                if ((tuples_read + read_increment) > tuple_partition_size)
                 {
-                        read_increment = partition_size - tuples_read;
+                        read_increment = tuple_partition_size - tuples_read;
                         read_buffer.resize(read_increment);
                 }
 
@@ -539,7 +555,7 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                 {
                 		//A posição do próximo TID no arquivo binário
                         tid_offset =
-                                        ((my_rank * partition_size) + (next_tuple + tuples_read))
+                                        ((my_rank * tuple_partition_size) + (next_tuple + tuples_read))
                                                         * (sizeof(int)
                                                                         + (num_dims
                                                                                         * sizeof(int))
@@ -671,7 +687,7 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
                 }
 
-                read_increment = partition_size / reading_rate;
+                read_increment = tuple_partition_size / reading_rate;
                 tuples_read += read_increment;
                 buffer_read++;
         }

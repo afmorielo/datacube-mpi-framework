@@ -376,9 +376,9 @@ FragCube::operator=(const FragCube&)
         return *this;
 }
 
-void FragCube::ComputeCube(std::string cube_table, int num_dims, int num_meas,
-                int partition_size, int reading_rate, int tbloc, std::string output_folder, int my_rank,
-                std::vector<std::vector<int>> queries, bool on_demand)
+void FragCube::ComputeCube(std::string cube_table, int num_dims,
+        int num_meas, int tuple_partition_size, int dim_partition_size, int reading_rate, int tbloc, std::string output_folder, int my_rank,
+        std::vector<std::vector<int>> queries, bool on_demand)
 {
 
         MPI_File data; //Um handler de arquivos MPI para o dataset completo
@@ -391,7 +391,7 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims, int num_meas,
         MPI_INFO_NULL, &data);
 
         int count = 0;
-        int increment = partition_size / reading_rate;
+        int increment = tuple_partition_size / reading_rate;
         int fragment_size = 1;
         iindex.resize(num_dims);
         read_buffer.resize(increment);
@@ -415,18 +415,18 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims, int num_meas,
         std::iota(std::begin(idims), std::end(idims), 0); // Fill with 0, 1, ..., num_dims.
         std::unordered_map<int, std::vector<int>>::const_iterator iter;
 
-        while (count < partition_size)
+        while (count < tuple_partition_size)
         {
-                if ((count + increment) > partition_size)
+                if ((count + increment) > tuple_partition_size)
                 {
-                        increment = partition_size - count;
+                        increment = tuple_partition_size - count;
                         read_buffer.resize(increment);
                 }
 
                 for (int a = 0; a < increment; ++a)
                 {
                         tid_offset =
-                                        ((my_rank * partition_size) + (a + count))
+                                        ((my_rank * tuple_partition_size) + (a + count))
                                                         * (sizeof(int)
                                                                         + (num_dims
                                                                                         * sizeof(int))
@@ -499,7 +499,7 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims, int num_meas,
 
                 }
 
-                increment = partition_size / reading_rate;
+                increment = tuple_partition_size / reading_rate;
                 count += increment;
 
         }

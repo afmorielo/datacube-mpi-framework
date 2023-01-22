@@ -111,48 +111,92 @@ bool QueryConverter(const std::vector<std::string> &q_vec_str,
  *
  */
 bool GetPartitionSize(int num_tuples, int num_dims, int num_procs, int my_rank,
-                int &tuple_partition_size, int &dim_partition_size, int reading_rate)
+                int &tuple_partition_size, int &dim_partition_size, int reading_rate, std::string partition)
 {
+		//Usuário escolheu particionar por tuplas
+		if(partition == "tuples"){
 
-		//Se houver mais processos em paralelo do que tuplas, é impossível fazer o particionamento
-        if (num_tuples < num_procs)
-        {
-                std::cout
-                                << "ERRO: número de tarefas em paralelo é maior que o número de tuplas!"
-                                << std::endl;
-                return false;
-        }
+			//Se houver mais processos em paralelo do que tuplas, é impossível fazer o particionamento
+	        if (num_tuples < num_procs)
+	        {
+	                std::cout
+	                                << "ERRO: número de tarefas em paralelo é maior que o número de tuplas!"
+	                                << std::endl;
+	                return false;
+	        }
 
-        //Se a divisão das tuplas entre os processos é exata, então o tamanho da partição também é exato e igual para todos
-        if (num_tuples % num_procs == 0)
-        {
-        	tuple_partition_size = num_tuples / num_procs;
-        }
-        else{
-            //A divisão não é exata.
-            //Os primeiros processos tem uma tupla a mais
-            if (my_rank < (num_procs - (num_tuples % num_procs)))
-            {
-            	tuple_partition_size = (num_tuples / num_procs) + 1;
-            }
-            else
-            {
-            	tuple_partition_size = num_tuples / num_procs;
-            }
-        }
+	        //Se a divisão das tuplas entre os processos é exata, então o tamanho da partição também é exato e igual para todos
+	        if (num_tuples % num_procs == 0)
+	        {
+	        	tuple_partition_size = num_tuples / num_procs;
+	        }
+	        else{
+	            //A divisão não é exata.
+	            //Os primeiros processos tem uma tupla a mais
+	            if (my_rank < (num_tuples % num_procs))
+	            {
+	            	tuple_partition_size = (num_tuples / num_procs) + 1;
+	            }
+	            else
+	            {
+	            	tuple_partition_size = num_tuples / num_procs;
+	            }
+	        }
 
-        //Não é possível ler 1/N de uma quantidade de tuplas menor que N
-        if (tuple_partition_size < reading_rate)
-        {
-                std::cout << "ERRO: a tarefa " << my_rank << " não consegue ler 1/"
-                                << reading_rate << " das " << tuple_partition_size
-                                << " tuplas que ela recebeu!" << std::endl;
-                return false;
-        }
-        else
-        {
-                return true;
-        }
+	        //Não é possível ler 1/N de uma quantidade de tuplas menor que N
+	        if (tuple_partition_size < reading_rate)
+	        {
+	                std::cout << "ERRO: a tarefa " << my_rank << " não consegue ler 1/"
+	                                << reading_rate << " das " << tuple_partition_size
+	                                << " tuplas que ela recebeu!" << std::endl;
+	                return false;
+	        }
+
+	        //Se escolheu partição por tuplas, isso será ignorado posteriormente
+	        dim_partition_size = -1;
+
+	        return true;
+		}
+		//Usuário escolheu particionar por dimensões
+		else if(partition == "dimensions"){
+
+			//Se houver mais processos em paralelo do que tuplas, é impossível fazer o particionamento
+	        if(num_dims < num_procs)
+	        {
+	                std::cout
+	                                << "ERRO: número de tarefas em paralelo é maior que o número de dimensões!"
+	                                << std::endl;
+	                return false;
+	        }
+
+	        //Se a divisão das dimensões entre os processos é exata, então o tamanho da partição também é exato e igual para todos
+	        if (num_dims % num_procs == 0){
+	        	dim_partition_size = num_dims / num_procs;
+	        }
+	        else{
+	            //A divisão não é exata.
+	            //Os primeiros processos tem uma dimensão a mais
+	            if (my_rank < (num_dims % num_procs))
+	            {
+	            	dim_partition_size = (num_dims / num_procs) + 1;
+	            }
+	            else
+	            {
+	            	dim_partition_size = num_dims / num_procs;
+	            }
+	        }
+
+	        //Se escolheu partição por dimensões, isso será ignorado posteriormente
+	        tuple_partition_size = -1;
+
+	        return true;
+		}
+		else {
+            std::cout
+                            << "ERRO: tipo de particionamento não suportado (conhecidos: tuples, dimensions)!"
+                            << std::endl;
+            return false;
+		}
 }
 
 /** Lê os dados de entrada e realiza operações adicionaos sobre eles se necessário
@@ -187,6 +231,9 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                 //Variável que armazena o algoritmo escolhido pelo usuário
                 std::string user_algorithm;
 
+                //Variável que armazena o tipo de particionamento escolhido pelo usuário
+                std::string user_partition;
+
                 //Variável que armazena o nome do arquivo com tabela de entrada do algoritmo
                 std::string user_table;
 
@@ -218,6 +265,10 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                                 po::value<std::string>(&user_algorithm)->default_value(
                                                 "bcubing"),
                                 "tipo de cubo a ser criado (bcubing,fragcubing)")(
+								"partition",
+								po::value<std::string>(&user_partition)->default_value(
+												"tuples"),
+								"tipo de particionamento a ser usado (tuples,dimensions)")(
                                 "table,f",
                                 po::value<std::string>(&user_table),
                                 "arquivo binário contendo uma tabela com dados para os quais deseja computar o cubo")(
@@ -257,12 +308,12 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                 if (vm.count("help") || (argc <= 1))
                 {
                         std::cout
-                                        << "pdcubing - um facilitador para cubos de dados em cluster"
+                                        << "datacube-mpi-framework - um facilitador para cubos de dados em cluster"
                                         << std::endl << std::endl;
                         std::cout
-                                        << "Utilização: mpirun pdcubing [options] [table-file]"
+                                        << "Utilização: mpirun datacube-mpi-framework [options] [table-file]"
                                         << std::endl
-										<< "Exemplo: mpirun -np 2 pdcubing -d 4 -m 1 -t 10 -r 1 --query \"? * 1 *\" -f dataset_10t_4d.bin -o cubo/ --algorithm bcubing --tbloc 4"
+										<< "Exemplo: mpirun -np 2 datacube-mpi-framework -d 4 -m 1 -t 10 -r 1 --query \"? * 1 *\" -f dataset_10t_4d.bin -o cubo/ --algorithm bcubing --tbloc 4"
 										<< std::endl;
 
                         //Resuno das opções por linha de comando
@@ -273,7 +324,7 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                 //Se digitou --version mostre a versão atual do programa
                 if (vm.count("version"))
                 {
-                        std::cout << "pdcubing, version 1.0"
+                        std::cout << "datacube-mpi-framework, v1.0"
                                         << std::endl;
                         return false;
                 }
@@ -428,7 +479,7 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
 
                 //Tenta obter o tamanho da partição dos dados pelo número de processos em execução
                 if (!(GetPartitionSize(num_tuples, num_dims, num_procs, my_rank,
-                		tuple_partition_size, dim_partition_size, reading_rate)))
+                		tuple_partition_size, dim_partition_size, reading_rate, user_partition)))
                 {
                         std::cout
                                         << "ERRO: por favor garanta que os valores de tuplas, tarefas e a taxa de leitura sejam corretos."
@@ -436,6 +487,14 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                         return false;
 
                 }
+
+                //Mensagem final para o usuário apenas leitura dos parâmetros
+                if(tuple_partition_size > 0){
+                    std::cout << "I am rank " << my_rank << " and will take a partition of " << tuple_partition_size << " tuples with " << num_dims << " dimensions..." << std::endl;
+                } else if (dim_partition_size > 0){
+                    std::cout << "I am rank " << my_rank << " and will take a partition of " << num_tuples << " tuples with " << dim_partition_size << " dimensions..." << std::endl;
+                }
+
 
         }
         catch (std::exception& e)
