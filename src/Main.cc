@@ -49,6 +49,12 @@ int main(int argc, char *argv[])
         int reading_rate;	//Taxa de leitura dos dados de disco para memória
         int tbloc; //Tamanho do bloco, só é aplicável para o algoritmo bCubing
 
+        //Esse são vectors que guardam o tamanho de partição de cada processo (seja por tuplas ou dimensões)
+        //Se na posição 0 temos o valor 10, significa que o processo 0 usa uma partiçãod de tamanho 10.
+        //Dependendo da entrada fornecida pelo usuário isso signifca 10 tuplas ou 10 dimensões.
+        std::vector<int> tuple_partition_listings;
+        std::vector<int> dim_partition_listings;
+
         //Um objeto da classe Handler, cuja função é garantir que as variáveis passadas pelo usuário sejam válidas
         Handler IO;
 
@@ -73,6 +79,15 @@ int main(int argc, char *argv[])
         	MPI_Finalize();
         }
         else{
+
+        	//Aloca a memória necessária para os dados de todos os processos
+        	tuple_partition_listings.resize(num_procs);
+        	dim_partition_listings.resize(num_procs);
+
+        	//Salva os dados de tamanho de partições, todos os processos tem uma cópia disso
+            MPI_Allgather(&tuple_partition_size, 1, MPI_INT, tuple_partition_listings.data(), 1, MPI_INT, MPI_COMM_WORLD);
+            MPI_Allgather(&dim_partition_size, 1, MPI_INT, dim_partition_listings.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
             //Para permitir a leitura das dimensões do disco em segmentos de mesmo tamanho
             MPI_Type_contiguous(num_dims, MPI_INT, &MPI_TUPLE_DIMS);
             MPI_Type_commit(&MPI_TUPLE_DIMS);
@@ -91,7 +106,7 @@ int main(int argc, char *argv[])
                     begin_compute = Time::now();
 
                     //Invoca a implementação do método de computação do cubo
-                    cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand);
+                    cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand, tuple_partition_listings, dim_partition_listings);
 
             		//Tempo logo após finalização da computação
                     end_compute = Time::now();
@@ -104,7 +119,7 @@ int main(int argc, char *argv[])
             {
                     begin_compute = Time::now();
                     cube = std::make_unique<FragCube>(FragCube());
-                    cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand);
+                    cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand, tuple_partition_listings, dim_partition_listings);
                     end_compute = Time::now();
 
                     begin_query = Time::now();

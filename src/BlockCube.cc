@@ -1,6 +1,6 @@
 #include "BlockCube.h"
 #include <algorithm>
-
+#include <numeric>
 #include <chrono>
 #include <fstream>
 #include <boost/filesystem.hpp>
@@ -497,7 +497,7 @@ BlockCube::operator=(const BlockCube&)
  */
 void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                 int num_meas, int tuple_partition_size, int dim_partition_size, int reading_rate, int tbloc, std::string output_folder, int my_rank,
-                std::vector<std::vector<int>> queries, bool on_demand)
+                std::vector<std::vector<int>> queries, bool on_demand, std::vector<int> tuple_partition_listings, std::vector<int> dim_partition_listings)
 {
 
         MPI_File data; //Um handler de arquivos MPI para o dataset completo
@@ -553,9 +553,11 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                 //Lê as tuplas do incremento atual e salva no buffer de leitura
                 for (int next_tuple = 0; next_tuple < read_increment; ++next_tuple)
                 {
+                		int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
+
                 		//A posição do próximo TID no arquivo binário
                         tid_offset =
-                                        ((my_rank * tuple_partition_size) + (next_tuple + tuples_read))
+                                        (sum_of_partitions + (tuples_read + next_tuple))
                                                         * (sizeof(int)
                                                                         + (num_dims
                                                                                         * sizeof(int))
