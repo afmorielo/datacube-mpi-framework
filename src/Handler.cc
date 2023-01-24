@@ -356,11 +356,18 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
 
                 //Se digitou --output-folder, verifique se o diretório existe ou pode ser criado
                 if (vm.count("output-folder")){
+                	//Se o diretório não existe
                 	if(!boost::filesystem::exists(user_output)){
-						std::cout << "ERRO: O diretório "
-										<< user_output
-										<< " não existe" << std::endl;
-						return false;
+                		//Apenas o primeiro processo se encarrega de tentar criar o diretório
+                		if(my_rank == 0){
+                    		//Tente criar, mas se não conseguir informe erro ao usuário
+                    		if(!boost::filesystem::create_directory(user_output)){
+        						std::cout << "ERRO: O diretório "
+        										<< user_output
+        										<< " não existe e não pode ser criado." << std::endl;
+        						return false;
+                    		}
+                		}
                 	}
                 }
                 else{
@@ -464,7 +471,7 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                 cube_table = user_table;
 
                 //Salva a informação do diretório de saída para o cubo de dados
-                output_folder = boost::filesystem::canonical(user_output).string();
+                output_folder = boost::filesystem::weakly_canonical(user_output).string();
 
                 //Verifica se o usuário informou alguma query para ser executada e já tenta converter para inteiros
                 if (vm.count("query")

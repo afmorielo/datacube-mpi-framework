@@ -500,27 +500,37 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                 std::vector<std::vector<int>> queries, bool on_demand, std::vector<int> tuple_partition_listings, std::vector<int> dim_partition_listings)
 {
 
-        MPI_File data; //Um handler de arquivos MPI para o dataset completo
-        MPI_Offset tid_offset; //Uma forma de saber o endereço de um TID numa tupla do dataset
-        MPI_Offset dims_offset; //Uma forma de saber o endereço das dimensões numa tupla do dataset
-        MPI_Offset meas_offset; //Uma forma de saber o endereço das medidas numa tupla do dataset
+		//Um handler de arquivos MPI para o dataset completo
+		//Esse arquivo DEVE ser composto apenas de números, onde em cada linha
+		//o primeiro número é um inteiro que representa um TID,
+		//os n números seguintes são inteiros que representam valores de atributo,
+		//os n números seguintes são ponto flutuante e representam medidas
+		//Separados por vírgula.
+        MPI_File data;
+
+        //Uma forma de saber o endereço de um TID numa tupla do dataset
+        MPI_Offset tid_offset;
+
+        //Uma forma de saber o endereço das dimensões numa tupla do dataset
+        MPI_Offset dims_offset;
+
+        //Uma forma de saber o endereço das medidas numa tupla do dataset
+        MPI_Offset meas_offset;
 
         //Abra o arquivo fornecido pelo usuário e guarde o endereço dele no handler
         MPI_File_open(MPI_COMM_WORLD, cube_table.c_str(), MPI_MODE_RDONLY,
         MPI_INFO_NULL, &data);
 
-        int tuples_read = 0; //Conta quantas tuplas foram lidas
-        int buffer_read = 0; //Conta quantas vezes o buffer de leitura foi preenchido
-        int read_increment = tuple_partition_size / reading_rate; //Lê a partição com base na taxa de ingestão
-        int bid = 0; //BID inicial
-        int bid_tuples = 0; //Quantidade de tuplas no bloco identificado por BID
+        //Conta quantas tuplas foram lidas para o processo de computar o cubo
+        //Esse valor começa em zero e deve terminar quando ler todas as tuplas da partição
+        int tuples_read = 0;
 
-        //Na definição da classe essas estruturas não tem tamanho definido ainda
-        //Aqui podemos redimensionar elas de acordo com o dataset
-        bbloc.resize(num_dims);
-        bblocRAM.resize(num_dims);
+        //Ler todas as tuplas da partição de uma só vez seria bem ruim em uso de memória principal
+        //Criamos um incremento com base na taxa de ingestão desejada, para ler por partes
+        int read_increment = tuple_partition_size / reading_rate;
+
+        //Ajusta o tamanho do buffer de leitura para o tamanho do incremento
         read_buffer.resize(read_increment);
-        for(int i = 0 ; i < num_dims ; i++) bbloc[i].resize(1); //Aloca espaço para o BID inicial em todas as dimensões
 
         //Ajusta o tamanho das tuplas no buffer de leitura, que a princípio não se sabe
         //Assim é possível ler tuplas com a quantidade correta de dimensões e medidas
@@ -530,175 +540,272 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
         	tuple.meas.resize(num_meas);
         }
 
-        //Creates a directory in the output folder for the current process (bcubing data will be stored inside)
-        boost::filesystem::create_directories(output_folder + "/" + std::to_string(my_rank));
+        ///////////////////// ESPECÍFICO DO ALGORITMO BCUBING /////////////////////
 
-        //Creates directories for each dimension of the dataset on the process folder, initially empty (will hold block data)
-        for (int i = 0; i < num_dims; i++)
-        {
-                boost::filesystem::create_directories(output_folder + "/" + std::to_string(my_rank) + "/" + std::to_string(i));
-        }
+        //ID do primeiro bloco, blocos subsequentes terão IDs incrementais
+        int bid = 0;
 
-        //Enquanto não ler todas as tuplas dessa partição
-        while (tuples_read < tuple_partition_size)
-        {
-        		//Verifica se na próxima leitura que vai fazer não irá passar do tamanho máximo da partição
-        		//Se necessário, reduz o incremento e o buffer de leitura
-                if ((tuples_read + read_increment) > tuple_partition_size)
-                {
-                        read_increment = tuple_partition_size - tuples_read;
-                        read_buffer.resize(read_increment);
-                }
+        //Quantidade de tuplas no bloco identificado por BID, deve ser igual a tbloc
+        int bid_tuples_count = 0;
 
-                //Lê as tuplas do incremento atual e salva no buffer de leitura
-                for (int next_tuple = 0; next_tuple < read_increment; ++next_tuple)
-                {
-                		int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
-
-                		//A posição do próximo TID no arquivo binário
-                        tid_offset =
-                                        (sum_of_partitions + (tuples_read + next_tuple))
-                                                        * (sizeof(int)
-                                                                        + (num_dims
-                                                                                        * sizeof(int))
-                                                                        + (num_meas
-                                                                                        * sizeof(float)));
-                        //A posição das próximas dimensões no arquivo binário
-                        dims_offset = tid_offset + sizeof(int);
-
-                        //A posição das próximas medidas no arquivo binário
-                        meas_offset = dims_offset
-                                        + ((num_dims) * sizeof(int));
-
-                        //Leia um inteiro e guarde no buffer
-                        MPI_File_read_at(data, tid_offset, &read_buffer[next_tuple], 1,
-                        MPI_INT,
-                        MPI_STATUS_IGNORE);
-
-                        //Leia todas as dimensões e guarde no buffer
-                        MPI_File_read_at(data, dims_offset,
-                                        &read_buffer[next_tuple].dims[0], 1,
-                                        MPI_TUPLE_DIMS, MPI_STATUS_IGNORE);
-
-                        //Leia todas as medidas e guarde no buffer
-                        MPI_File_read_at(data, meas_offset,
-                                        &read_buffer[next_tuple].meas[0], 1,
-                                        MPI_TUPLE_MEAS,
-                                        MPI_STATUS_IGNORE);
-
-                }
-
-                //Nesse ponto o buffer de leitura foi preenchido
-
-                //Para cada uma das tuplas do buffer
-                for (TupleType &t : read_buffer)
-                {
-                		//A princípio considere que a tupla é "útil"
-                        bool use_tuple = true;
-
-                        //Se cubo sob demanda, verifique se a tupla é realmente "útil"
-                        if (on_demand)
-                        {
-                        		//Quantidade de consultas que envolvem a tupla
-                                int useful_in_queries = 0;
-
-                                //Para cada consulta a ser executada
-                                for (std::vector<int> &q : queries)
-                                {
-                                        if (useful_in_queries == 0)
-                                        {
-                                        		//Valores úteis na tupla para a consulta
-                                                int useful_values = 0;
-
-                                                //Veja se cada valor da tupla bate com a consulta
-                                                //Também valida se consulta tem agregação ou inquire
-                                                for (int x = 0; x < num_dims;
-                                                                x++)
-                                                {
-                                                        if ((t.dims[x] == q[x])
-                                                                        || q[x]
-                                                                                        == -1
-                                                                        || q[x]
-                                                                                        == -2)
-                                                        {
-                                                                useful_values++;
-                                                        }
-                                                }
-
-                                                //Se todos os valores atenderem a consulta, então a tupla é "útil"
-                                                if (useful_values == num_dims)
-                                                {
-                                                        useful_in_queries++;
-                                                }
-                                        }
-                                }
-
-                                //Se não for útil para a consulta, marque para não usar
-                                if(useful_in_queries == 0){
-                                        use_tuple = false;
-                                }
-                        }
-
-                        //Tupla será inserida no cubo de dados
-                        if (use_tuple)
-                        {
-                        	//Conta uma nova tupla no bloco atual
-                        	bid_tuples++;
-
-                        	//Se essa nova tupla significar que irá exceder tamanho do bloco
-                        	//Crie um novo BID e coloque a tupla nele
-                        	if(bid_tuples > tbloc){
-                                for (int i = 0; i < num_dims; i++)
-                                {
-                                        std::string filename = output_folder + "/" + std::to_string(my_rank) + "/" + std::to_string(i) + "/" + std::to_string(bid);
-                                        std::ofstream ofs(filename.c_str(), std::ofstream::binary);
-                                        boost::archive::binary_oarchive oa(ofs, boost::archive::no_header);
-                                        oa & bbloc[i][0];
-
-                                }
-                                bbloc.clear();
-                                bbloc.resize(num_dims);
-                                for(int i = 0 ; i < num_dims ; i++) bbloc[i].resize(1); //Aloca espaço para o BID inicial em todas as dimensões
-
-                        		bid++;
-                        		bid_tuples = 1;//Novo bloco terá uma tupla
-                        	}
-
-							for (int j = 0; j < num_dims; ++j)
-							{
-									bbloc[j][0][t.dims[j]].push_back(t.tid);
-									bblocRAM[j][t.dims[j]].insert(bid);
-							}
-
-							for (int k = 0; k < num_meas; ++k)
-							{
-									bmeas[t.tid].push_back(t.meas[k]);
-							}
-
-                        }
-
-                }
-
-
-                for (int i = 0; i < num_dims; i++)
-                {
-                        std::string filename = output_folder + "/" + std::to_string(my_rank) + "/" + std::to_string(i) + "/" + std::to_string(bid);
-                        std::ofstream ofs(filename.c_str(), std::ofstream::binary);
-                        boost::archive::binary_oarchive oa(ofs, boost::archive::no_header);
-                        oa & bbloc[i][0];
-
-                }
-
-                read_increment = tuple_partition_size / reading_rate;
-                tuples_read += read_increment;
-                buffer_read++;
-        }
-
-        bbloc.clear();
+        //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura bCubingBloc
         bbloc.resize(num_dims);
+
+        //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura bCubingBlocRAM
+        bblocRAM.resize(num_dims);
+
+        //Calculamos um bloco por vez apenas, em todas as dimensões, assim utiliza menos memória
+        //Depois de processar o bloco será salvo em disco imediatamente
+        for (auto & bids_per_dimension : bbloc) {
+        	bids_per_dimension.resize(1);
+        }
+
+        //Se o diretório de saída estiver vazio, significa que foi recém criado (cubo ainda não computado)
+        //Nesse caso procede à computação do cubo normalmente
+        if(boost::filesystem::is_empty(output_folder)){
+
+        	//Cada processo MPI tem um diretóri próprio para armazenar dados do cubo
+        	std::string process_directory = output_folder + "/" + std::to_string(my_rank);
+
+            //Cria o diretório associado ao processo
+            boost::filesystem::create_directory(process_directory);
+
+            //No diretório do processo cria diretórios (inicialmente vazios) para cada uma das dimensões
+            //Os blocos usados pelo algoritmo bcubing serão salvos nesses diretórios
+            for (int dim_number = 0; dim_number < num_dims; dim_number++)
+            {
+                    boost::filesystem::create_directory(process_directory + "/" + std::to_string(dim_number));
+            }
+
+            //Enquanto não ler todas as tuplas dessa partição
+            while (tuples_read < tuple_partition_size)
+            {
+            		//Verifica se na próxima leitura que vai fazer não irá passar do tamanho máximo da partição
+            		//Se necessário, reduz o incremento e o buffer de leitura
+                    if ((tuples_read + read_increment) > tuple_partition_size)
+                    {
+                    		//Recalcula o tamanho do incremento apenas com as tuplas restantes
+                            read_increment = tuple_partition_size - tuples_read;
+
+                            //Redimensiona, reduzindo potencialmente o tamanho do buffer de leitura
+                            read_buffer.resize(read_increment);
+                    }
+
+                    //Lê as tuplas do incremento atual e salva no buffer de leitura
+                    for (int next_tuple = 0; next_tuple < read_increment; ++next_tuple)
+                    {
+                    		//Soma o tamanho das partições de todos os os processos anteriores ao atual
+                    		//Assim consegue saber em que ponto do arquivo deve começar a ler os dados
+                    		int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
+
+                    		//A posição do próximo TID no arquivo binário, indica o começo da próxima tupla que deve ser lida
+                    		//Deve pular as tuplas de partições de outros processos e também tuplas que já foram lidas
+                    		//As tuplas já lidas devem ser contadas tanto as lidas nesse incremento quanto o total de lidas
+                    		//Calcula com base no tamanho em bytes de uma tupla
+                            tid_offset =
+                                            (sum_of_partitions + (next_tuple + tuples_read))
+                                                            * (sizeof(int)
+                                                                            + (num_dims
+                                                                                            * sizeof(int))
+                                                                            + (num_meas
+                                                                                            * sizeof(float)));
+                            //A posição das próximas dimensões no arquivo binário
+                            //Se sabemos a posição do TID, e ele é inteiro, as dimensões começam nessa posição acrescida to tamanho do TID
+                            dims_offset = tid_offset + sizeof(int);
+
+                            //A posição das próximas medidas no arquivo binário
+                            //Se sabemos a posição das dimensões, e todas são inteiras, as medidas começam nessa posição acrescida dos tamanhos das dimensões
+                            meas_offset = dims_offset
+                                            + ((num_dims) * sizeof(int));
+
+                            //Leia um inteiro para o TID e guarde no buffer
+                            MPI_File_read_at(data, tid_offset, &read_buffer[next_tuple], 1,
+                            MPI_INT,
+                            MPI_STATUS_IGNORE);
+
+                            //Leia todas as dimensões da tupla e guarde no buffer
+                            MPI_File_read_at(data, dims_offset,
+                                            &read_buffer[next_tuple].dims[0], 1,
+                                            MPI_TUPLE_DIMS, MPI_STATUS_IGNORE);
+
+                            //Leia todas as medidas da tupla e guarde no buffer
+                            MPI_File_read_at(data, meas_offset,
+                                            &read_buffer[next_tuple].meas[0], 1,
+                                            MPI_TUPLE_MEAS,
+                                            MPI_STATUS_IGNORE);
+
+                    }
+
+                    //Nesse ponto o buffer de leitura foi preenchido
+                    //NÃO leu todas as tuplas da partição, apenas um incremento
+                    //Ex: pode ser que o tamanho da partição seja 1 milhão e aqui leu as primeiras 250.000
+
+                    //Para cada uma das tuplas do buffer
+                    for (TupleType &tuple : read_buffer)
+                    {
+                    		//A princípio considere que a tupla é "útil"
+                            bool use_tuple = true;
+
+                            //Se cubo sob demanda, verifique se a tupla é realmente "útil"
+                            if (on_demand)
+                            {
+                            		//Quantidade de consultas que envolvem a tupla
+                                    int useful_in_queries = 0;
+
+                                    //Para cada consulta a ser executada
+                                    for (std::vector<int> &query : queries)
+                                    {
+                                    		//Se for útil para pelo menos uma consulta é suficiente
+                                    		//Não precisa verificar se é util para todas
+                                            if (useful_in_queries == 0)
+                                            {
+                                            		//Valores úteis na tupla para a consulta
+                                                    int useful_values = 0;
+
+                                                    //Veja se cada valor da tupla bate com a consulta
+                                                    //Também valida se consulta tem agregação ou inquire
+                                                    for (int dim_number = 0; dim_number < num_dims;
+                                                    		dim_number++)
+                                                    {
+                                                    		//A tupla é útil se o o valor na dimensão for
+                                                    		//exatamente o valor solicitado na consulta ou
+                                                    		//se para a dimensão a consulta envolve agregação
+                                                    		//ou inquire
+                                                            if ((tuple.dims[dim_number] == query[dim_number])
+                                                                            || query[dim_number]
+                                                                                            == -1
+                                                                            || query[dim_number]
+                                                                                            == -2)
+                                                            {
+                                                            		//Encontrou um valor útil na consulta
+                                                                    useful_values++;
+                                                            }
+                                                    }
+
+                                                    //Se todos os valores atenderem a consulta, então a tupla é útil
+                                                    if (useful_values == num_dims)
+                                                    {
+                                                            useful_in_queries++;
+                                                    }
+                                            }
+                                    }
+
+                                    //Se não for útil para nenhuma consulta, marque para não usar
+                                    if(useful_in_queries == 0){
+                                    	use_tuple = false;
+                                    }
+                            }
+
+                            //Tupla será inserida no cubo de dados
+                            if (use_tuple)
+                            {
+                            	//Conta uma nova tupla no bloco atual
+                            	bid_tuples_count++;
+
+                            	//Se essa nova tupla significar que irá exceder tamanho do bloco
+                            	//Crie um novo BID e coloque a tupla nele
+                            	if(bid_tuples_count > tbloc){
+
+                            		//Primeiro salva os dados do BID já processado, que estava em memória, para disco
+                                    for (int dim_number = 0; dim_number < num_dims; dim_number++)
+                                    {
+                                    		//Nome do arquivo onde o BID será salvo - diretório do processo, num diretório específico da dimensão
+                                            std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+
+                                            //Indica que o arquivo de saída será um stream de dados binários
+                                            std::ofstream ofs(bid_filename.c_str(), std::ofstream::binary);
+
+                                            //Serialização é feita pela biblioteca Boost
+                                            boost::archive::binary_oarchive oa(ofs, boost::archive::no_header);
+
+                                            //Salva os dados do BID recém criado em disco
+                                            oa & bbloc[dim_number][0];
+                                    }
+
+                                    //Limpa a memória da variável bbloc
+                                    bbloc.clear();
+
+                                    //Redimensiona novamente com base na quantidade de dimensões
+                                    bbloc.resize(num_dims);
+
+                                    //Calculamos um bloco por vez apenas, em todas as dimensões, assim utiliza menos memória
+                                    //Depois de processar o bloco será salvo em disco imediatamente
+                                    for (auto & bids_per_dimension : bbloc) {
+                                    	bids_per_dimension.resize(1);
+                                    }
+
+                                    //Identificador do novo bloco
+                            		bid++;
+
+                            		//Novo bloco já começa com uma tupla, que não foi possível inserir no bloco anterior
+                            		bid_tuples_count = 1;
+                            	}
+
+
+                            	//Atualiza as entradas das variáveis bbloc e bblocRAM
+                            	//Inclui nessas estruturas os dados da tupla
+    							for (int dim_number = 0; dim_number < num_dims; ++dim_number)
+    							{
+    									//Em cada dimensão, no único bloco existente na posição zero (processamos um bloco por vez),
+    									//insere ou atualiza uma entrada com o valor de atributo da dimensão e um novo TID associado
+    									bbloc[dim_number][0][tuple.dims[dim_number]].push_back(tuple.tid);
+
+    									//Em cada dimensão insere ou atualiza uma entrada com o valor de atributo da dimensão e um novo BID associado
+    									bblocRAM[dim_number][tuple.dims[dim_number]].insert(bid);
+    							}
+
+    							//Atualiza as entradas da variável bCubingMeasures
+    							//Inclui nessa estrutura os dados da tupla
+    							for (int meas_number = 0; meas_number < num_meas; ++meas_number)
+    							{
+    									//Insere ou atualiza uma entrada com o valor do TID e as medidas associadas
+    									bmeas[tuple.tid].push_back(tuple.meas[meas_number]);
+    							}
+
+                            }
+
+                    }
+
+                    //A última escrita de dados da memória pro disco
+                    //Ao longo do laço anterior deve ter escrito várias vezes
+                    //Aqui é o *último bloco*
+                    for (int dim_number = 0; dim_number < num_dims; dim_number++)
+                    {
+                			//Nome do arquivo onde o BID será salvo - diretório do processo, num diretório específico da dimensão
+                            std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+
+                            //Indica que o arquivo de saída será um stream de dados binários
+                            std::ofstream ofs(bid_filename.c_str(), std::ofstream::binary);
+
+                            //Serialização é feita pela biblioteca Boost
+                            boost::archive::binary_oarchive oa(ofs, boost::archive::no_header);
+
+                            //Salva os dados do BID recém criado em disco
+                            oa & bbloc[dim_number][0];
+
+                    }
+
+                    //Pode ser que o incremento de leitura tenha sido alterado acima, então volta para o valor padrão
+                    read_increment = tuple_partition_size / reading_rate;
+
+                    //Adiciona a quantidade de tuplas recém lidas ao total de tuplas lidas
+                    tuples_read += read_increment;
+            }
+        }
+
+        //Limpa o espaço em memória da bCubingBloc
+        bbloc.clear();
+
+        //Redimensiona pela quantidade de dimensões pois será usado nas consultas
+        bbloc.resize(num_dims);
+
+        //Limpa o espaço em memória para o buffer de leitura
         read_buffer.clear();
 
+        //Barreira de sincronismo - só continua quando todos os processos chegarem até aqui
         MPI_Barrier(MPI_COMM_WORLD);
+
+        //Todos os processos fecham a conexão com o arquivo de entrada
         MPI_File_close(&data);
 }
 
