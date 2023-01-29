@@ -67,145 +67,6 @@ void BlockCube::InquirePointQuery(std::vector<std::vector<int> >& arr, int my_ra
     }
 }
 
-std::vector<int> intersection(std::vector<int> const& left_vector, std::vector<int> const& right_vector) {
-    auto left = left_vector.begin();
-    auto left_end = left_vector.end();
-    auto right = right_vector.begin();
-    auto right_end = right_vector.end();
-
-    assert(std::is_sorted(left, left_end));
-    assert(std::is_sorted(right, right_end));
-
-    std::vector<int> result;
-
-    while (left != left_end && right != right_end) {
-        if (*left == *right) {
-            result.push_back(*left);
-            ++left;
-            ++right;
-            continue;
-        }
-
-        if (*left < *right) {
-            ++left;
-            continue;
-        }
-
-        assert(*left > *right);
-        ++right;
-    }
-
-    return result;
-}
-
-std::vector <int> getIntersectionC(std::vector < std::vector <int> > &sets){
-	std::vector <int> last_intersection_tids = sets[0];
-	std::vector<int> curr_intersection_tids;
-
-	for (std::size_t i = 1; i < sets.size(); ++i) {
-		curr_intersection_tids = intersection(last_intersection_tids, sets[i]);
-		std::swap(last_intersection_tids, curr_intersection_tids);
-		curr_intersection_tids.clear();
-	}
-
-	return last_intersection_tids;
-}
-
-std::vector <int> getIntersectionA(std::vector < std::vector <int> > &sets){
-	std::vector <int> last_intersection_tids = sets[0];
-	std::vector<int> curr_intersection_tids;
-
-	for (std::size_t i = 1; i < sets.size(); ++i) {
-		std::set_intersection(last_intersection_tids.begin(), last_intersection_tids.end(),
-				sets[i].begin(), sets[i].end(),
-			std::back_inserter(curr_intersection_tids));
-		std::swap(last_intersection_tids, curr_intersection_tids);
-		curr_intersection_tids.clear();
-	}
-
-	return last_intersection_tids;
-}
-
-std::vector <int> getIntersectionB(std::vector < std::vector <int> > &sets)
-{
-	std::vector <int> result;  // To store the reaultant set
-int smallSetInd = 0;  // Initialize index of smallest set
-int minSize = sets[0].size(); // Initialize size of smallest set
-
-// sort all the sets, and also find the smallest set
-for (int i = 1 ; static_cast<std::vector<int>::size_type>(i) < sets.size() ; i++)
-{
-    // sort this set
-    //sort(sets[i].begin(), sets[i].end());
-
-    // update minSize, if needed
-    if (static_cast<std::vector<int>::size_type>(minSize) > sets[i].size())
-    {
-        minSize = sets[i].size();
-        smallSetInd = i;
-    }
-}
-
-std::map<int,int> elementsMap;
-
-// Add all the elements of smallest set to a map, if already present,
-// update the frequency
-for (int i = 0; static_cast<std::vector<int>::size_type>(i) < sets[smallSetInd].size(); i++)
-{
-    if (elementsMap.find( sets[smallSetInd][i] ) == elementsMap.end())
-        elementsMap[ sets[smallSetInd][i] ] = 1;
-    else
-        elementsMap[ sets[smallSetInd][i] ]++;
-}
-
-// iterate through the map elements to see if they are present in
-// remaining sets
-std::map<int,int>::iterator it;
-for (it = elementsMap.begin(); it != elementsMap.end(); ++it)
-{
-    int elem = it->first;
-    int freq = it->second;
-
-    bool bFound = true;
-
-    // Iterate through all sets
-    for (int j = 0 ; static_cast<std::vector<int>::size_type>(j) < sets.size() ; j++)
-    {
-        // If this set is not the smallest set, then do binary search in it
-        if (j != smallSetInd)
-        {
-            // If the element is found in this set, then find its frequency
-            if (binary_search( sets[j].begin(), sets[j].end(), elem ))
-            {
-               int lInd = lower_bound(sets[j].begin(), sets[j].end(), elem)
-                                                        - sets[j].begin();
-               int rInd = upper_bound(sets[j].begin(), sets[j].end(), elem)
-                                                        - sets[j].begin();
-
-               // Update the minimum frequency, if needed
-               if ((rInd - lInd) < freq)
-                   freq = rInd - lInd;
-            }
-            // If the element is not present in any set, then no need
-            // to proceed for this element.
-            else
-            {
-                bFound = false;
-                break;
-            }
-        }
-    }
-
-    // If element was found in all sets, then add it to result 'freq' times
-    if (bFound)
-    {
-        for (int k = 0; k < freq; k++)
-            result.push_back(elem);
-    }
-}
-return result;
-}
-
 void BlockCube::PointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
 	//Listas de BIDs que são úteis para responder a consulta
 	std::vector<std::set<int>> lists_of_bids;
@@ -283,7 +144,7 @@ void BlockCube::PointQuery(std::vector<int> q, int my_rank, int num_dims, std::s
 		//Ordena as listas de tid por tamanho
 		std::sort(lists_of_tids.begin(), lists_of_tids.end(), [](const std::vector<int> & a, const std::vector<int> & b){ return a.size() < b.size(); });
 
-		last_intersection_tids = getIntersectionC(lists_of_tids);
+		last_intersection_tids = IntersectMultipleVectors(lists_of_tids);
 
 	}
 
@@ -480,7 +341,42 @@ BlockCube::operator=(const BlockCube&)
 }
 
 void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder){
-	std::cout << "Consulta" << std::endl;
+
+	//Listas de BIDs associados a valores de atributo da consulta
+	//Cada posição do vector armazena uma lista de BIDs
+	std::vector<std::vector<int>> lists_of_bids;
+
+	//O primeiro passo para responder uma consulta com o algoritmo bCubing é resolver operandos do tipo point
+	for(std::vector<T>::size_type operand = 0; operand != query.size(); operand++) {
+
+		//Cada operando está associado a uma das dimensões
+		//O primeiro operando da consulta é da primeira dimensão, o segundo da segunda, etc.
+		int dim = operand;
+
+		//Se o operando não for do tipo agregação '*' ou inquire '?', então é do tipo point, um valor de atributo
+		if (query[operand] != -1 && query[operand] != -2)
+		{
+			//Extrai a lista de BIDs, aqui ainda no formato de um conjunto sem duplicações
+			std::set<int> bids_set = bblocRAM[dim][query[operand]];
+
+			//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
+			std::vector<int> bids_vector(bids_set.begin(), bids_set.end());
+
+			//Adiciona às listas de BIDs a lista de BIDs do valor de atributo buscando na bblocRAM
+			lists_of_bids.push_back(bids_vector);
+		}
+	}
+
+	//Faz a interseção das listas de BIDS encontradas
+	std::vector<int> bids_intersection = IntersectMultipleVectors(lists_of_bids);
+
+	//Agora sabemos quantos BIDs teremos que recuperar do disco para responder a consulta
+	for (auto & dimension : bbloc) {
+		//Redimensiona a estrutura em memória da bCubingBloc para acomodar os blocos em cada dimensão
+		dimension.resize(bids_intersection.size());
+	}
+
+	std::cout << my_rank << " : " << bids_intersection.size() << std::endl;
 }
 
 
@@ -571,12 +467,12 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
         	bids_per_dimension.resize(1);
         }
 
+    	//Cada processo MPI tem um diretório próprio para armazenar dados do cubo
+    	std::string process_directory = output_folder + "/" + std::to_string(my_rank);
+
         //Se o diretório de saída estiver vazio, significa que foi recém criado (cubo ainda não computado)
         //Nesse caso procede à computação do cubo normalmente
         if(boost::filesystem::is_empty(output_folder)){
-
-        	//Cada processo MPI tem um diretóri próprio para armazenar dados do cubo
-        	std::string process_directory = output_folder + "/" + std::to_string(my_rank);
 
             //Cria o diretório associado ao processo
             boost::filesystem::create_directory(process_directory);
@@ -842,6 +738,35 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                     //Adiciona a quantidade de tuplas recém lidas ao total de tuplas lidas
                     tuples_read += read_increment;
             }
+
+    		//SALVA INDICE DE BLOCOS DA RAM EM DISCO
+
+            //Nome do arquivo onde o índice atualmente em memória principal será salvo
+            std::string bbloc_ram_filename = process_directory + "/" + "index.ram";
+
+            //Indica que o arquivo de saída será um stream de dados binários
+            std::ofstream ofram(bbloc_ram_filename.c_str(), std::ofstream::binary);
+
+            //Serialização é feita pela biblioteca Boost
+            boost::archive::binary_oarchive oram(ofram, boost::archive::no_header);
+
+            //Salva os dados de medidas do BID recém criado em disco
+            oram & bblocRAM;
+
+        } else { //Cubo já computado
+
+            //Nome do arquivo onde o índice atualmente em memória principal está salvo
+			std::string bbloc_ram_filename = process_directory + "/" + "index.ram";
+
+            //Indica que o arquivo de entrada será um stream de dados binários
+			std::ifstream ifram(bbloc_ram_filename.c_str(), std::ifstream::binary);
+
+            //Serialização é feita pela biblioteca Boost
+			boost::archive::binary_iarchive iram(ifram, boost::archive::no_header);
+
+			//Lê os dados do disco e carrega na variável em memória
+			iram & bblocRAM;
+
         }
 
         //Limpa o espaço em memória da bCubingBloc
