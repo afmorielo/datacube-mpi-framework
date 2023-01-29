@@ -24,7 +24,7 @@ protected:
 private:
         std::vector<std::vector<std::unordered_map<int, std::vector<int>>>> bbloc;
         std::vector<std::unordered_map<int, std::set<int>>> bblocRAM;
-        std::unordered_map<int, std::vector<float>> bmeas;
+        std::vector<std::unordered_map<int, std::vector<float>>> bmeas;
         std::vector<std::vector<int>> my_queries;
 };
 

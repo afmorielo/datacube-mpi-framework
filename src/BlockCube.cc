@@ -548,11 +548,17 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
         //Quantidade de tuplas no bloco identificado por BID, deve ser igual a tbloc
         int bid_tuples_count = 0;
 
+        //Sabendo o tamanho da partição e o tamanho de bloco conseguiremos saber quantos blocos serão criados
+        int num_bids = (tuple_partition_size % tbloc == 0) ? tuple_partition_size / tbloc : tuple_partition_size / tbloc + 1;
+
         //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura bCubingBloc
         bbloc.resize(num_dims);
 
         //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura bCubingBlocRAM
         bblocRAM.resize(num_dims);
+
+        //Agora que sabemos a quantidade de blocos, redimensiona a estrutura bCubingMeasures
+        bmeas.resize(num_bids);
 
         //Calculamos um bloco por vez apenas, em todas as dimensões, assim utiliza menos memória
         //Depois de processar o bloco será salvo em disco imediatamente
@@ -709,17 +715,34 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                             		//Primeiro salva os dados do BID já processado, que estava em memória, para disco
                                     for (int dim_number = 0; dim_number < num_dims; dim_number++)
                                     {
+                                    		//SALVA O BLOCO EM DISCO
+
                                     		//Nome do arquivo onde o BID será salvo - diretório do processo, num diretório específico da dimensão
                                             std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
 
                                             //Indica que o arquivo de saída será um stream de dados binários
-                                            std::ofstream ofs(bid_filename.c_str(), std::ofstream::binary);
+                                            std::ofstream ofb(bid_filename.c_str(), std::ofstream::binary);
 
                                             //Serialização é feita pela biblioteca Boost
-                                            boost::archive::binary_oarchive oa(ofs, boost::archive::no_header);
+                                            boost::archive::binary_oarchive ob(ofb, boost::archive::no_header);
 
                                             //Salva os dados do BID recém criado em disco
-                                            oa & bbloc[dim_number][0];
+                                            ob & bbloc[dim_number][0];
+
+                                            //SALVA AS MEDIDAS DO BLOCO EM DISCO
+
+                                            //Nome do arquivo onde as medidas do BID serão salvas - diretório do processo, num diretório específico da dimensão
+                                            std::string bid_meas_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid) + ".m";
+
+                                            //Indica que o arquivo de saída será um stream de dados binários
+                                            std::ofstream ofm(bid_meas_filename.c_str(), std::ofstream::binary);
+
+                                            //Serialização é feita pela biblioteca Boost
+                                            boost::archive::binary_oarchive om(ofm, boost::archive::no_header);
+
+                                            //Salva os dados de medidas do BID recém criado em disco
+                                            om & bmeas[0];
+
                                     }
 
                                     //Limpa a memória da variável bbloc
@@ -727,6 +750,12 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
                                     //Redimensiona novamente com base na quantidade de dimensões
                                     bbloc.resize(num_dims);
+
+                                    //Limpa a memória da variável bmeas
+                                    bmeas.clear();
+
+                                    //Redimensiona novamente com base na quantidade de blocos
+                                    bmeas.resize(num_bids);
 
                                     //Calculamos um bloco por vez apenas, em todas as dimensões, assim utiliza menos memória
                                     //Depois de processar o bloco será salvo em disco imediatamente
@@ -759,7 +788,8 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
     							for (int meas_number = 0; meas_number < num_meas; ++meas_number)
     							{
     									//Insere ou atualiza uma entrada com o valor do TID e as medidas associadas
-    									bmeas[tuple.tid].push_back(tuple.meas[meas_number]);
+    									//Preenche um bloco por vez na memória e depois salva em disco, por isso aqui sempre usa a primeira posição
+    									bmeas[0][tuple.tid].push_back(tuple.meas[meas_number]);
     							}
 
                             }
@@ -771,17 +801,33 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                     //Aqui é o *último bloco*
                     for (int dim_number = 0; dim_number < num_dims; dim_number++)
                     {
-                			//Nome do arquivo onde o BID será salvo - diretório do processo, num diretório específico da dimensão
-                            std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+                		//SALVA O BLOCO EM DISCO
 
-                            //Indica que o arquivo de saída será um stream de dados binários
-                            std::ofstream ofs(bid_filename.c_str(), std::ofstream::binary);
+                		//Nome do arquivo onde o BID será salvo - diretório do processo, num diretório específico da dimensão
+                        std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
 
-                            //Serialização é feita pela biblioteca Boost
-                            boost::archive::binary_oarchive oa(ofs, boost::archive::no_header);
+                        //Indica que o arquivo de saída será um stream de dados binários
+                        std::ofstream ofb(bid_filename.c_str(), std::ofstream::binary);
 
-                            //Salva os dados do BID recém criado em disco
-                            oa & bbloc[dim_number][0];
+                        //Serialização é feita pela biblioteca Boost
+                        boost::archive::binary_oarchive ob(ofb, boost::archive::no_header);
+
+                        //Salva os dados do BID recém criado em disco
+                        ob & bbloc[dim_number][0];
+
+                        //SALVA AS MEDIDAS DO BLOCO EM DISCO
+
+                        //Nome do arquivo onde as medidas do BID serão salvas - diretório do processo, num diretório específico da dimensão
+                        std::string bid_meas_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid) + ".m";
+
+                        //Indica que o arquivo de saída será um stream de dados binários
+                        std::ofstream ofm(bid_meas_filename.c_str(), std::ofstream::binary);
+
+                        //Serialização é feita pela biblioteca Boost
+                        boost::archive::binary_oarchive om(ofm, boost::archive::no_header);
+
+                        //Salva os dados de medidas do BID recém criado em disco
+                        om & bmeas[0];
 
                     }
 
@@ -798,6 +844,12 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
         //Redimensiona pela quantidade de dimensões pois será usado nas consultas
         bbloc.resize(num_dims);
+
+        //Limpa a memória da variável bmeas
+        bmeas.clear();
+
+        //Redimensiona novamente com base na quantidade de blocos
+        bmeas.resize(num_bids);
 
         //Limpa o espaço em memória para o buffer de leitura
         read_buffer.clear();
