@@ -18,7 +18,7 @@ auto totherall = 0;
 
 // function to print combinations that contain
 // one element from each of the given arrays
-void BlockCube::solveInquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs)
+void BlockCube::InquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs)
 {
     // number of arrays
     int n = arr.size();
@@ -206,7 +206,7 @@ for (it = elementsMap.begin(); it != elementsMap.end(); ++it)
 return result;
 }
 
-void BlockCube::solvePointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void BlockCube::PointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
 	//Listas de BIDs que são úteis para responder a consulta
 	std::vector<std::set<int>> lists_of_bids;
 
@@ -324,7 +324,7 @@ void BlockCube::solvePointQuery(std::vector<int> q, int my_rank, int num_dims, s
 	}
 }
 
-void BlockCube::solveInquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void BlockCube::InquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
 	//Listas de BIDs que são úteis para responder a consulta
 	std::vector<std::set<int>> lists_of_bids;
 
@@ -411,7 +411,7 @@ void BlockCube::solveInquireQuery(std::vector<int> q, int my_rank, int num_dims,
 	    std::cout << "\n";
 	}*/
 
-	solveInquirePointQuery(lists_of_attributes, my_rank, num_dims, output_folder, num_procs);
+	InquirePointQuery(lists_of_attributes, my_rank, num_dims, output_folder, num_procs);
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
@@ -448,7 +448,7 @@ void BlockCube::solveInquireQuery(std::vector<int> q, int my_rank, int num_dims,
 				}
 			}
 
-			solvePointQuery(q, my_rank, num_dims, output_folder, num_procs);
+			PointQuery(q, my_rank, num_dims, output_folder, num_procs);
 		}
 	}
 
@@ -478,6 +478,11 @@ BlockCube::operator=(const BlockCube&)
 {
         return *this;
 }
+
+void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder){
+	std::cout << "Consulta" << std::endl;
+}
+
 
 /**
  * Computa um cubo de dados - essa é uma função fixa do framework
@@ -859,19 +864,4 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
         //Todos os processos fecham a conexão com o arquivo de entrada
         MPI_File_close(&data);
-}
-
-
-void BlockCube::QueryCube(std::vector<std::vector<int>> queries, int my_rank, int num_dims, std::string output_folder,  int num_procs){
-
-	//Para cada consulta faça
-    for (std::vector<int> &q : queries)
-    {
-        if (std::find(q.begin(), q.end(), -2) == q.end())
-        { //no inquires
-        	solvePointQuery(q, my_rank, num_dims, output_folder, num_procs);
-        } else {//pelo menos um inquire
-        	solveInquireQuery(q, my_rank, num_dims, output_folder, num_procs);
-        }
-    }
 }

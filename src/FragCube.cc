@@ -11,7 +11,7 @@ auto totherall2 = 0;
 
 // function to print combinations that contain
 // one element from each of the given arrays
-void FragCube::solveInquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs)
+void FragCube::InquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs)
 {
     // number of arrays
     int n = arr.size();
@@ -104,7 +104,7 @@ std::vector <int> getIntersectionC2(std::vector < std::vector <int> > &sets){
 	return last_intersection_tids;
 }
 
-void FragCube::solvePointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void FragCube::PointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
 	int result;
 	float sum = 0, result_sum;
 	std::vector<int> tmp_result;
@@ -230,7 +230,7 @@ void FragCube::solvePointQuery(std::vector<int> q, int my_rank, int num_dims, st
 	}
 }
 
-void FragCube::solveInquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void FragCube::InquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
 
 	//Listas de atributos em cada dimensão possíveis para esse inquire
 	std::vector<std::vector<int>> lists_of_attributes;
@@ -308,7 +308,7 @@ void FragCube::solveInquireQuery(std::vector<int> q, int my_rank, int num_dims, 
 	}*/
 
 
-	solveInquirePointQuery(lists_of_attributes, my_rank, num_dims, output_folder, num_procs);
+	InquirePointQuery(lists_of_attributes, my_rank, num_dims, output_folder, num_procs);
 
 	MPI_Barrier(MPI_COMM_WORLD);
 
@@ -345,7 +345,7 @@ void FragCube::solveInquireQuery(std::vector<int> q, int my_rank, int num_dims, 
 				}
 			}
 
-			solvePointQuery(q, my_rank, num_dims, output_folder, num_procs);
+			PointQuery(q, my_rank, num_dims, output_folder, num_procs);
 		}
 	}
 
@@ -374,6 +374,10 @@ FragCube&
 FragCube::operator=(const FragCube&)
 {
         return *this;
+}
+
+void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder){
+	std::cout << "Consulta" << std::endl;
 }
 
 void FragCube::ComputeCube(std::string cube_table, int num_dims,
@@ -655,18 +659,4 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         MPI_Barrier(MPI_COMM_WORLD);
         MPI_File_close(&data);
 
-}
-
-void FragCube::QueryCube(std::vector<std::vector<int>> queries, int my_rank, int num_dims, std::string output_folder,  int num_procs){
-
-	//Para cada consulta faça
-    for (std::vector<int> &q : queries)
-    {
-        if (std::find(q.begin(), q.end(), -2) == q.end())
-        { //no inquires
-        	solvePointQuery(q, my_rank, num_dims, output_folder, num_procs);
-        } else {//pelo menos um inquire
-        	solveInquireQuery(q, my_rank, num_dims, output_folder, num_procs);
-        }
-    }
 }

@@ -101,31 +101,47 @@ int main(int argc, char *argv[])
             {
                     //Define o ponteiro único para um cubo do tipo desejado
                     cube = std::make_unique<BlockCube>(BlockCube());
-
-            		//Tempo de início da computação
-                    begin_compute = Time::now();
-
-                    //Invoca a implementação do método de computação do cubo
-                    cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand, tuple_partition_listings, dim_partition_listings);
-
-            		//Tempo logo após finalização da computação
-                    end_compute = Time::now();
-
-                    begin_query = Time::now();
-                    cube->QueryCube(queries, my_rank, num_dims, output_folder, num_procs);
-                    end_query = Time::now();
             }
             else if (cube_algorithm == "fragcubing") //Execução do algoritmo fragCubing - computa e depois executa as consultas
             {
-                    begin_compute = Time::now();
-                    cube = std::make_unique<FragCube>(FragCube());
-                    cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand, tuple_partition_listings, dim_partition_listings);
-                    end_compute = Time::now();
-
-                    begin_query = Time::now();
-                    cube->QueryCube(queries, my_rank, num_dims, output_folder, num_procs);
-                    end_query = Time::now();
+                	//Define o ponteiro único para um cubo do tipo desejado
+                	cube = std::make_unique<FragCube>(FragCube());
             }
+
+    		//Tempo de início da computação
+            begin_compute = Time::now();
+
+            //Invoca a implementação do método de computação do cubo
+            cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand, tuple_partition_listings, dim_partition_listings);
+
+    		//Tempo logo após finalização da computação
+            end_compute = Time::now();
+
+    		//Tempo de início das consultas
+            begin_query = Time::now();
+
+        	//Irá avaliar consulta a consulta que o usuário forneceu
+            for (auto &query : queries)
+            {
+            	if (cube_algorithm == "bcubing") {
+                	cube->QueryCube(query, my_rank, num_dims, output_folder);
+            	}
+            	else if (cube_algorithm == "fragcubing"){
+					//Operadores inquire "?" são convertidos para o valor inteiro "-2"
+					//Se não tiver nenhum inquire, é uma consulta do tipo point
+					if (std::find(query.begin(), query.end(), -2) == query.end())
+					{
+						//Resolve consulta pontual
+						cube->PointQuery(query, my_rank, num_dims, output_folder, num_procs);
+					} else {
+						//Resolve consulta inquire
+						cube->InquireQuery(query, my_rank, num_dims, output_folder, num_procs);
+					}
+            	}
+            }
+
+    		//Tempo logo após finalização das consultas
+            end_query = Time::now();
 
             if(my_rank==0){
                     std::cout << "Time compute = " << std::chrono::duration_cast<std::chrono::seconds> (end_compute - begin_compute).count() << "[s]" << std::endl;
