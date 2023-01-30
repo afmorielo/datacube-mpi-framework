@@ -342,9 +342,28 @@ BlockCube::operator=(const BlockCube&)
 
 void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder){
 
+	//Cada processo MPI tem um diretório próprio para armazenar dados do cubo
+	std::string process_directory = output_folder + "/" + std::to_string(my_rank);
+
 	//Listas de BIDs associados a valores de atributo da consulta
 	//Cada posição do vector armazena uma lista de BIDs
 	std::vector<std::vector<int>> lists_of_bids;
+
+	//Listas de TIDs fazem parte da resposta da consulta
+	//Cada posição do vector armazena uma lista de TIDs
+	std::vector<std::vector<int>> lists_of_tids;
+
+	//Lista de dimensões sobre as quais incide um operador inquire
+	std::vector<int> inquires;
+
+	//Lista de dimensões sobre as quais incide um operador point
+	std::vector<int> points;
+
+	//No momento a consulta retorna apenas COUNT, então aqui é armazenado o resultado local
+	int local_count = 0;
+
+	//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
+	int global_count = 0;
 
 	//O primeiro passo para responder uma consulta com o algoritmo bCubing é resolver operandos do tipo point
 	for(std::vector<T>::size_type operand = 0; operand != query.size(); operand++) {
@@ -364,19 +383,99 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 
 			//Adiciona às listas de BIDs a lista de BIDs do valor de atributo buscando na bblocRAM
 			lists_of_bids.push_back(bids_vector);
+
+			//Atualiza a lista de dimensões afetada por points
+			points.push_back(dim);
+		}
+
+		//Se o operando for do tipo inquire '?', identificamos a dimensão afetada
+		if (query[operand] == -2){
+			//Atualiza a lista de dimensões afetada por inquires
+			inquires.push_back(dim);
 		}
 	}
 
 	//Faz a interseção das listas de BIDS encontradas
 	std::vector<int> bids_intersection = IntersectMultipleVectors(lists_of_bids);
 
-	//Agora sabemos quantos BIDs teremos que recuperar do disco para responder a consulta
-	for (auto & dimension : bbloc) {
-		//Redimensiona a estrutura em memória da bCubingBloc para acomodar os blocos em cada dimensão
-		dimension.resize(bids_intersection.size());
-	}
+	//Se não tiver nenhuma consulta inquire, deve ter apenas points
+	if(inquires.empty()){
 
-	std::cout << my_rank << " : " << bids_intersection.size() << std::endl;
+		//Só faz sentido tentar responder a consulta se a interseção não for fazia
+		if(!bids_intersection.empty()){
+
+			//Agora sabemos quantos BIDs teremos que recuperar do disco para responder a consulta
+			for (auto & dimension : bbloc) {
+				//Redimensiona a estrutura em memória da bCubingBloc para acomodar os blocos em cada dimensão
+				//Como usamos o índice para determinar o BID, e a interseção de BIDs está ordenada, o último valor deve ser o maior índice
+				//Assim alocamos memória suficiente para todos os índices até o maior, muitos índicies ficaram vazios
+				//
+				// E.g. bids_intersection = [1, 3]
+				//
+				// Então irá alocar do índice 0 até o 3, inicialmente vazio, na bbloc [[ ],[ ],[ ],[ ]]
+				// Depois leremos de disco para preencher conforme o necessário
+				//
+				dimension.resize(bids_intersection.back() + 1);
+			}
+
+				//Para cada uma das dimensões associadas à consultas point
+				for(auto & dim_number : points){
+
+					//Armazena os TIDs associados ao valor de atributo de uma das dimensões da consulta
+					std::vector<int> tids;
+
+					//Resolveremos primeiro elas, buscando os BIDs associados em disco
+					for(auto & bid : bids_intersection){
+
+						//LÊ O BLOCO DO DISCO
+
+						//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
+						std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+
+						//Indica que o arquivo de entrada será um stream de dados binários
+						std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
+
+						//Serialização é feita pela biblioteca Boost
+						boost::archive::binary_iarchive ib(ifb, boost::archive::no_header);
+
+						//Carrega os dados do BID que estava em disco
+						ib & bbloc[dim_number][bid];
+
+						//Acessa uma única vez a estrutura bCubingBloc para obter os TIDS para esse BID
+						std::vector<int> tids_bbloc = bbloc[dim_number][bid][query[dim_number]];
+
+						//Adiciona às listas de TID os TIDs da dimensão associada à point, para esse BID, com base no valor da consulta
+						tids.insert(std::end(tids), std::begin(tids_bbloc), std::end(tids_bbloc));
+					}
+
+					//Vai armazenar uma quantidade de listas igual à quantidade de consultas do tipo point
+					lists_of_tids.push_back(tids);
+
+				}
+
+				//Faz a interseção das listas de TIDS encontradas
+				std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
+
+				//Atualiza o valor de COUNT localmente para a consulta
+				local_count = tids_intersection.size();
+		}
+
+		//Somente será executado quando todos processos chegarem nesse ponto
+		//Combina as respostas de todos num só processo
+		MPI_Reduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+		if(my_rank == 0){
+			if(global_count > 0){
+				for(auto & operand : query) {
+					(operand == -1) ? std::cout << '*' << ' ' : std::cout << operand << ' ';
+				}
+				std::cout << ": " << global_count << std::endl;
+			}
+		}
+
+
+
+	}
 }
 
 
