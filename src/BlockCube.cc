@@ -340,7 +340,7 @@ BlockCube::operator=(const BlockCube&)
         return *this;
 }
 
-void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder){
+void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs){
 
 	//Cada processo MPI tem um diretório próprio para armazenar dados do cubo
 	std::string process_directory = output_folder + "/" + std::to_string(my_rank);
@@ -555,6 +555,94 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 				//Insere o valor de atributo como uma nova lista nas listas de atributos
 				lists_of_attribs[dim_number] = { query[dim_number] };
 			}
+
+		    // number of arrays
+		    int n = lists_of_attribs.size();
+
+		    // to keep track of next element in each of
+		    // the n arrays
+		    int* indices = new int[n];
+
+		    // initialize with first element's index
+		    for (int i = 0; i < n; i++)
+		        indices[i] = 0;
+
+	    	int finished = 0;
+
+	    	int count_finished = 0;
+
+	    	std::vector<int> all_finished(num_procs);
+
+		    while (1) {
+
+	            MPI_Allgather(&finished, 1, MPI_INT, all_finished.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+		    	std::vector<int> inquire_query;
+
+		    	std::vector<int> inquire_query_run(num_dims);
+
+		    	if(finished == 0){
+			        // print current combination
+			        for (int i = 0; i < n; i++){
+			        	inquire_query.push_back(lists_of_attribs[i][indices[i]]);
+			        }
+		    	}
+
+		        /*if(my_rank == 2){
+			        for(auto & operand: inquire_query){
+			        	std::cout << operand << " ";
+			        }
+			        std::cout << std::endl;
+		        }*/
+
+		        //MPI_Barrier(MPI_COMM_WORLD);
+
+		    	for(int i = 0; i < num_procs; i++){
+
+		    		if(my_rank == i){
+		    			inquire_query_run = inquire_query;
+		    		}
+
+		    		if(all_finished[i] == 0){
+						MPI_Bcast(&inquire_query_run[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
+
+						QueryCube(inquire_query_run, my_rank, num_dims, output_folder, num_procs);
+		    		}
+		    	}
+
+		        // find the rightmost array that has more
+		        // elements left after the current element
+		        // in that array
+		        int next = n - 1;
+
+		        if(finished == 0){
+			        while (next >= 0 &&
+			              (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
+			            next--;
+
+			        // no such array is found so no more
+			        // combinations left
+			        if (next < 0)
+			            finished = 1;
+		        }
+
+		        MPI_Allreduce(&finished, &count_finished, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+				if(count_finished == num_procs)
+					break;
+
+				if(finished == 0){
+			        // if found move to next element in that
+			        // array
+			        indices[next]++;
+
+			        // for all arrays to the right of this
+			        // array current index again points to
+			        // first element
+			        for (int i = next + 1; i < n; i++)
+			            indices[i] = 0;
+				}
+		    }
 		}
 	}
 }

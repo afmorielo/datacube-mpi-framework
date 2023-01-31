@@ -376,7 +376,7 @@ FragCube::operator=(const FragCube&)
         return *this;
 }
 
-void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder){
+void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs){
 	std::cout << "Consulta" << std::endl;
 }
 

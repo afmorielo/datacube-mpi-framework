@@ -19,7 +19,7 @@ public:
         virtual void PointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs);
         virtual void InquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs);
         virtual void InquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs);
-        virtual void QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder);
+        virtual void QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs);
 protected:
 private:
         std::vector<std::vector<std::unordered_map<int, std::vector<int>>>> bbloc;

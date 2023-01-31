@@ -33,7 +33,7 @@ public:
         virtual void PointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs) = 0;
         virtual void InquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs) = 0;
         virtual void InquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs) = 0;
-        virtual void QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder) = 0;
+        virtual void QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs) = 0;
         virtual std::vector<int> IntersectTwoVectors(std::vector<int> const& vector_a, std::vector<int> const& vector_b);
         virtual std::vector<int> IntersectMultipleVectors(std::vector<std::vector<int>> &sorted_vectors);
         std::vector<TupleType> read_buffer;

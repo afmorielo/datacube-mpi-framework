@@ -124,7 +124,7 @@ int main(int argc, char *argv[])
             for (auto &query : queries)
             {
             	if (cube_algorithm == "bcubing") {
-                	cube->QueryCube(query, my_rank, num_dims, output_folder);
+                	cube->QueryCube(query, my_rank, num_dims, output_folder, num_procs);
             	}
             	else if (cube_algorithm == "fragcubing"){
 					//Operadores inquire "?" são convertidos para o valor inteiro "-2"
