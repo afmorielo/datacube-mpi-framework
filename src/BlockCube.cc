@@ -589,7 +589,7 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 
 		//Algumas vezes o processo nem gerou as listas pois a interseção de BIDs foi vazia
 		//Isso significa que a partição que o processo recebeu não ajuda na consulta
-		//Sendo assim, ele já finalizou
+		//Sendo assim, ele já finalizou e verificar a primeira lista é suficiente pra confirmar isso
 		if(lists_of_attribs.front().empty()){
 			finished = 1;
 		}
@@ -634,34 +634,38 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 				//Todos os processos verificam se o "mandante" já está finalizado
 				if(procs_finished_control[i] == 0){
 
+					//A query do "mandante" é enviada para todos os demais processos
 					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
 
+					//Todos os processos executam a query
 					QueryCube(query_running, my_rank, num_dims, output_folder, num_procs);
 				}
 			}
 
-			if(finished == 0){
-				// find the rightmost array that has more
-				// elements left after the current element
-				// in that array
-				int next = number_of_lists - 1;
+			// Começa do final e volta procurando
+			// a lista com mais elementos a serem
+			// combinados
+			int next = number_of_lists - 1;
 
+			if(finished == 0){
 				while (next >= 0 &&
 					  (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
 					next--;
 
-				// no such array is found so no more
-				// combinations left
+				// Nenhuma lista encontrada
+				// então não há mais combinações
 				if (next < 0)
 					finished = 1;
+			}
 
-				// if found move to next element in that
-				// array
+			if(finished == 0){
+				// Se encontrou move-se para o próximo
+				// elemento na lista
 				indices[next]++;
 
-				// for all arrays to the right of this
-				// array current index again points to
-				// first element
+				// Para todas as listas à direita desta
+				// o índice de combinações novamnete retorna
+				// para o primeiro elemento
 				for (int i = next + 1; i < number_of_lists; i++)
 					indices[i] = 0;
 			}
