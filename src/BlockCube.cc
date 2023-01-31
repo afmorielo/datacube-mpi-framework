@@ -511,6 +511,10 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 				//Irá guardar os valores de atributo possíveis na dimensão
 				std::set<int> attribs_set;
 
+				//Um valor extra necessário é o de agregação '*' pois não está nos dados e é usado em consulta válida de inquire
+				//E.g: uma dimensão com atributos [1,2] na verdade tem os atributos [-1,1,2], onde -1 indica TODOS
+				attribs_set.insert(-1);
+
 				//Resolveremos primeiro elas, buscando os BIDs associados em disco
 				for(auto & bid : bids_intersection){
 
@@ -555,94 +559,112 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 				//Insere o valor de atributo como uma nova lista nas listas de atributos
 				lists_of_attribs[dim_number] = { query[dim_number] };
 			}
+		}
 
-		    // number of arrays
-		    int n = lists_of_attribs.size();
+		//Agora serão geradas as combinações de consultas associadas ao inquire
+		//https://www.geeksforgeeks.org/combinations-from-n-arrays-picking-one-element-from-each-array/
 
-		    // to keep track of next element in each of
-		    // the n arrays
-		    int* indices = new int[n];
+		//Conta a quantidade de listas de atributos
+		int number_of_lists = lists_of_attribs.size();
 
-		    // initialize with first element's index
-		    for (int i = 0; i < n; i++)
-		        indices[i] = 0;
+		//Guarda posições de índices de cada uma das listas
+		//Essas posições indicam qual o índice da lista está sendo usado para a combinação
+		int* indices = new int[number_of_lists];
 
-	    	int finished = 0;
+		//Inicialmente as combinações são geradas partindo do primeiro índice das listas
+		for (int i = 0; i < number_of_lists; i++){
+			indices[i] = 0;
+		}
 
-	    	int count_finished = 0;
+		//Quantidade de processos que já terminaram de gerar consultas
+		//Inicialmente é zero pois nenhuma consulta foi gerada/respondida ainda
+		int procs_finished = 0;
 
-	    	std::vector<int> all_finished(num_procs);
+		//Armazena uma lista dos indicadores de finalização de cada processo
+		//É útil para os demais processos saberem quando alguém vai enviar uma nova consulta ou não
+		std::vector<int> procs_finished_control(num_procs);
 
-		    while (1) {
+		//Equivalente a um booleano, 0 - FALSE, 1 -TRUE, que indica se o processo atual terminou de gerar consultas
+		int finished = 0;
 
-	            MPI_Allgather(&finished, 1, MPI_INT, all_finished.data(), 1, MPI_INT, MPI_COMM_WORLD);
+		//Algumas vezes o processo nem gerou as listas pois a interseção de BIDs foi vazia
+		//Isso significa que a partição que o processo recebeu não ajuda na consulta
+		//Sendo assim, ele já finalizou
+		if(lists_of_attribs.front().empty()){
+			finished = 1;
+		}
 
-		    	std::vector<int> inquire_query;
+		//Só sai desse laço com um "break"
+		while (1) {
 
-		    	std::vector<int> inquire_query_run(num_dims);
+			//Soma os indicadores de finalização de todos os processos e salva numa variável com a contagem geral, todos tem uma cópia
+			MPI_Allreduce(&finished, &procs_finished, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
 
-		    	if(finished == 0){
-			        // print current combination
-			        for (int i = 0; i < n; i++){
-			        	inquire_query.push_back(lists_of_attribs[i][indices[i]]);
-			        }
-		    	}
+			//Se todos tiverem finalizado, todos terão definido um valor "1" e a soma será igual ao número de processos
+			//Nesse caso pode encerrar a execução
+			if(procs_finished == num_procs)
+				break;
 
-		        /*if(my_rank == 2){
-			        for(auto & operand: inquire_query){
-			        	std::cout << operand << " ";
-			        }
-			        std::cout << std::endl;
-		        }*/
+			//Captura os indicadores de finalização de todos os processos e salva na lista geral, que todos tem uma cópia
+			MPI_Allgather(&finished, 1, MPI_INT, procs_finished_control.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
-		        //MPI_Barrier(MPI_COMM_WORLD);
+			//Armazena a consulta gerada pelo processo nessa iteração
+			std::vector<int> query;
 
-		    	for(int i = 0; i < num_procs; i++){
+			//Armazena a consulta, dentre aquelas gerados por todos os processos nessa iteração, sendo executada nesse momento
+			std::vector<int> query_running(num_dims);
 
-		    		if(my_rank == i){
-		    			inquire_query_run = inquire_query;
-		    		}
-
-		    		if(all_finished[i] == 0){
-						MPI_Bcast(&inquire_query_run[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
-
-						QueryCube(inquire_query_run, my_rank, num_dims, output_folder, num_procs);
-		    		}
-		    	}
-
-		        // find the rightmost array that has more
-		        // elements left after the current element
-		        // in that array
-		        int next = n - 1;
-
-		        if(finished == 0){
-			        while (next >= 0 &&
-			              (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
-			            next--;
-
-			        // no such array is found so no more
-			        // combinations left
-			        if (next < 0)
-			            finished = 1;
-		        }
-
-		        MPI_Allreduce(&finished, &count_finished, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-
-				if(count_finished == num_procs)
-					break;
-
-				if(finished == 0){
-			        // if found move to next element in that
-			        // array
-			        indices[next]++;
-
-			        // for all arrays to the right of this
-			        // array current index again points to
-			        // first element
-			        for (int i = next + 1; i < n; i++)
-			            indices[i] = 0;
+			//Só faz sentido tentar gerar uma nova consulta se ainda não tiver finalizado
+			if(finished == 0){
+				//Gera a consulta com base na próxima combinaçao de atributos
+				for (int i = 0; i < number_of_lists; i++){
+					query.push_back(lists_of_attribs[i][indices[i]]);
 				}
-		    }
+			}
+
+			//Nesse ponto cada processo que poderia gerar uma nova consulta gerou uma nova consulta nessa iteração
+			for(int i = 0; i < num_procs; i++){
+
+				//A cada etapa do laço define um processo como o "mandante"
+				if(my_rank == i){
+					//A consulta que será executada é a consulta gerada por aquele processo
+					query_running = query;
+				}
+
+				//Todos os processos verificam se o "mandante" já está finalizado
+				if(procs_finished_control[i] == 0){
+
+					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
+
+					QueryCube(query_running, my_rank, num_dims, output_folder, num_procs);
+				}
+			}
+
+			if(finished == 0){
+				// find the rightmost array that has more
+				// elements left after the current element
+				// in that array
+				int next = number_of_lists - 1;
+
+				while (next >= 0 &&
+					  (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
+					next--;
+
+				// no such array is found so no more
+				// combinations left
+				if (next < 0)
+					finished = 1;
+
+				// if found move to next element in that
+				// array
+				indices[next]++;
+
+				// for all arrays to the right of this
+				// array current index again points to
+				// first element
+				for (int i = next + 1; i < number_of_lists; i++)
+					indices[i] = 0;
+			}
 		}
 	}
 }
