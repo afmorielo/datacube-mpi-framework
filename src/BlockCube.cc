@@ -353,11 +353,18 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 	//Cada posição do vector armazena uma lista de TIDs
 	std::vector<std::vector<int>> lists_of_tids;
 
+	//No caso do inquire irá armazenar listas de valores de atributo
+	//Essas listas serão usadas para gerar as consultas pontuais derivadas do inquire
+	std::vector<std::vector<int>> lists_of_attribs(num_dims);
+
 	//Lista de dimensões sobre as quais incide um operador inquire
 	std::vector<int> inquires;
 
 	//Lista de dimensões sobre as quais incide um operador point
 	std::vector<int> points;
+
+	//Lista de dimensões sobre as quais incide um operador agregação
+	std::vector<int> aggregations;
 
 	//No momento a consulta retorna apenas COUNT, então aqui é armazenado o resultado local
 	int local_count = 0;
@@ -393,6 +400,13 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 			//Atualiza a lista de dimensões afetada por inquires
 			inquires.push_back(dim);
 		}
+
+		//Se o operando for do tipo agregação '*', identificamos a dimensão afetada
+		if (query[operand] == -1){
+			//Atualiza a lista de dimensões afetada por inquires
+			aggregations.push_back(dim);
+		}
+
 	}
 
 	//Faz a interseção das listas de BIDS encontradas
@@ -418,46 +432,46 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 				dimension.resize(bids_intersection.back() + 1);
 			}
 
-				//Para cada uma das dimensões associadas à consultas point
-				for(auto & dim_number : points){
+			//Para cada uma das dimensões associadas à consultas point
+			for(auto & dim_number : points){
 
-					//Armazena os TIDs associados ao valor de atributo de uma das dimensões da consulta
-					std::vector<int> tids;
+				//Armazena os TIDs associados ao valor de atributo de uma das dimensões da consulta
+				std::vector<int> tids;
 
-					//Resolveremos primeiro elas, buscando os BIDs associados em disco
-					for(auto & bid : bids_intersection){
+				//Resolveremos primeiro elas, buscando os BIDs associados em disco
+				for(auto & bid : bids_intersection){
 
-						//LÊ O BLOCO DO DISCO
+					//LÊ O BLOCO DO DISCO
 
-						//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
-						std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+					//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
+					std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
 
-						//Indica que o arquivo de entrada será um stream de dados binários
-						std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
+					//Indica que o arquivo de entrada será um stream de dados binários
+					std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
 
-						//Serialização é feita pela biblioteca Boost
-						boost::archive::binary_iarchive ib(ifb, boost::archive::no_header);
+					//Serialização é feita pela biblioteca Boost
+					boost::archive::binary_iarchive ib(ifb, boost::archive::no_header);
 
-						//Carrega os dados do BID que estava em disco
-						ib & bbloc[dim_number][bid];
+					//Carrega os dados do BID que estava em disco
+					ib & bbloc[dim_number][bid];
 
-						//Acessa uma única vez a estrutura bCubingBloc para obter os TIDS para esse BID
-						std::vector<int> tids_bbloc = bbloc[dim_number][bid][query[dim_number]];
+					//Acessa uma única vez a estrutura bCubingBloc para obter os TIDS para esse BID
+					std::vector<int> tids_bbloc = bbloc[dim_number][bid][query[dim_number]];
 
-						//Adiciona às listas de TID os TIDs da dimensão associada à point, para esse BID, com base no valor da consulta
-						tids.insert(std::end(tids), std::begin(tids_bbloc), std::end(tids_bbloc));
-					}
-
-					//Vai armazenar uma quantidade de listas igual à quantidade de consultas do tipo point
-					lists_of_tids.push_back(tids);
-
+					//Adiciona às listas de TID os TIDs da dimensão associada à point, para esse BID, com base no valor da consulta
+					tids.insert(std::end(tids), std::begin(tids_bbloc), std::end(tids_bbloc));
 				}
 
-				//Faz a interseção das listas de TIDS encontradas
-				std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
+				//Vai armazenar uma quantidade de listas igual à quantidade de consultas do tipo point
+				lists_of_tids.push_back(tids);
 
-				//Atualiza o valor de COUNT localmente para a consulta
-				local_count = tids_intersection.size();
+			}
+
+			//Faz a interseção das listas de TIDS encontradas
+			std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
+
+			//Atualiza o valor de COUNT localmente para a consulta
+			local_count = tids_intersection.size();
 		}
 
 		//Somente será executado quando todos processos chegarem nesse ponto
@@ -472,9 +486,76 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 				std::cout << ": " << global_count << std::endl;
 			}
 		}
+	} else { //Consulta tem pelo menos um operador inquire
+
+		//Só faz sentido tentar responder a consulta se a interseção não for fazia
+		if(!bids_intersection.empty()){
+
+			//Agora sabemos quantos BIDs teremos que recuperar do disco para responder a consulta
+			for (auto & dimension : bbloc) {
+				//Redimensiona a estrutura em memória da bCubingBloc para acomodar os blocos em cada dimensão
+				//Como usamos o índice para determinar o BID, e a interseção de BIDs está ordenada, o último valor deve ser o maior índice
+				//Assim alocamos memória suficiente para todos os índices até o maior, muitos índicies ficaram vazios
+				//
+				// E.g. bids_intersection = [1, 3]
+				//
+				// Então irá alocar do índice 0 até o 3, inicialmente vazio, na bbloc [[ ],[ ],[ ],[ ]]
+				// Depois leremos de disco para preencher conforme o necessário
+				//
+				dimension.resize(bids_intersection.back() + 1);
+			}
+
+			//Para cada uma das dimensões associadas à consultas inquire
+			for(auto & dim_number : inquires){
+
+				//Irá guardar os valores de atributo possíveis na dimensão
+				std::set<int> attribs_set;
+
+				//Resolveremos primeiro elas, buscando os BIDs associados em disco
+				for(auto & bid : bids_intersection){
+
+					//LÊ O BLOCO DO DISCO
+
+					//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
+					std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+
+					//Indica que o arquivo de entrada será um stream de dados binários
+					std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
+
+					//Serialização é feita pela biblioteca Boost
+					boost::archive::binary_iarchive ib(ifb, boost::archive::no_header);
+
+					//Carrega os dados do BID que estava em disco
+					ib & bbloc[dim_number][bid];
+
+					//Para cada par associando um valor de atributo a uma lista de TIDs
+					for (auto& attrib_pair_tids: bbloc[dim_number][bid]) {
+						//Extraia apenas o valor de atributo, o primeiro elemento do pair, e salve na lista de atributos
+						attribs_set.insert(attrib_pair_tids.first);
+					}
+				}
+
+				//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
+				std::vector<int> attribs_vector(attribs_set.begin(), attribs_set.end());
+
+				//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
+				lists_of_attribs[dim_number] = attribs_vector;
+
+			}
 
 
+			//Para cada uma das dimensões associadas à consultas point
+			for(auto & dim_number : points){
+				//Insere o valor de atributo como uma nova lista nas listas de atributos
+				lists_of_attribs[dim_number] = { query[dim_number] };
+			}
 
+			//Para cada uma das dimensões associadas à agregações
+			for(auto & dim_number : aggregations){
+				//Insere o valor de atributo como uma nova lista nas listas de atributos
+				lists_of_attribs[dim_number] = { query[dim_number] };
+			}
+		}
 	}
 }
 
