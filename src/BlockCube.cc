@@ -609,7 +609,7 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 			MPI_Allgather(&finished, 1, MPI_INT, procs_finished_control.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
 			//Armazena a consulta gerada pelo processo nessa iteração
-			std::vector<int> query;
+			std::vector<int> query(num_dims);
 
 			//Armazena a consulta, dentre aquelas gerados por todos os processos nessa iteração, sendo executada nesse momento
 			std::vector<int> query_running(num_dims);
@@ -618,7 +618,7 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 			if(finished == 0){
 				//Gera a consulta com base na próxima combinaçao de atributos
 				for (int i = 0; i < number_of_lists; i++){
-					query.push_back(lists_of_attribs[i][indices[i]]);
+					query[i] = lists_of_attribs[i][indices[i]];
 				}
 			}
 
