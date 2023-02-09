@@ -385,28 +385,48 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         std::vector<std::vector<int>> queries, bool on_demand, std::vector<int> tuple_partition_listings, std::vector<int> dim_partition_listings)
 {
 
-        MPI_File data; //Um handler de arquivos MPI para o dataset completo
-        MPI_Offset tid_offset; //Uma forma de saber o endereço de um TID numa tupla do dataset
-        MPI_Offset dims_offset; //Uma forma de saber o endereço das dimensões numa tupla do dataset
-        MPI_Offset meas_offset; //Uma forma de saber o endereço das medidas numa tupla do dataset
+		//Um handler de arquivos MPI para o dataset completo
+		//Esse arquivo DEVE ser composto apenas de números, onde em cada linha
+		//o primeiro número é um inteiro que representa um TID,
+		//os n números seguintes são inteiros que representam valores de atributo,
+		//os n números seguintes são ponto flutuante e representam medidas
+		//Separados por vírgula.
+		MPI_File data;
+
+		//Uma forma de saber o endereço de um TID numa tupla do dataset
+		MPI_Offset tid_offset;
+
+		//Uma forma de saber o endereço das dimensões numa tupla do dataset
+		MPI_Offset dims_offset;
+
+		//Uma forma de saber o endereço das medidas numa tupla do dataset
+		MPI_Offset meas_offset;
 
         //Abra o arquivo fornecido pelo usuário e guarde o endereço dele no handler
         MPI_File_open(MPI_COMM_WORLD, cube_table.c_str(), MPI_MODE_RDONLY,
         MPI_INFO_NULL, &data);
 
-        int count = 0;
-        int increment = tuple_partition_size / reading_rate;
-        int fragment_size = 1;
-        iindex.resize(num_dims);
-        read_buffer.resize(increment);
+        //Conta quantas tuplas foram lidas para o processo de computar o cubo
+        //Esse valor começa em zero e deve terminar quando ler todas as tuplas da partição
+        int tuples_read = 0;
+
+        //Ler todas as tuplas da partição de uma só vez seria bem ruim em uso de memória principal
+        //Criamos um incremento com base na taxa de ingestão desejada, para ler por partes
+        int read_increment = tuple_partition_size / reading_rate;
+
+        //Ajusta o tamanho do buffer de leitura para o tamanho do incremento
+        read_buffer.resize(read_increment);
 
         //Ajusta o tamanho das tuplas no buffer de leitura, que a princípio não se sabe
         //Assim é possível ler tuplas com a quantidade correta de dimensões e medidas
-        for (TupleType &i : read_buffer)
+        for (TupleType &tuple : read_buffer)
         {
-                i.dims.resize(num_dims);
-                i.meas.resize(num_meas);
+        	tuple.dims.resize(num_dims);
+        	tuple.meas.resize(num_meas);
         }
+
+        int fragment_size = 1;
+        iindex.resize(num_dims);
 
         std::vector<int> dimsubset;
         std::vector<int> idims(num_dims);
@@ -419,18 +439,18 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         std::iota(std::begin(idims), std::end(idims), 0); // Fill with 0, 1, ..., num_dims.
         std::unordered_map<int, std::vector<int>>::const_iterator iter;
 
-        while (count < tuple_partition_size)
+        while (tuples_read < tuple_partition_size)
         {
-                if ((count + increment) > tuple_partition_size)
+                if ((tuples_read + read_increment) > tuple_partition_size)
                 {
-                        increment = tuple_partition_size - count;
-                        read_buffer.resize(increment);
+                		read_increment = tuple_partition_size - tuples_read;
+                        read_buffer.resize(read_increment);
                 }
 
-                for (int a = 0; a < increment; ++a)
+                for (int a = 0; a < read_increment; ++a)
                 {
                         tid_offset =
-                                        ((my_rank * tuple_partition_size) + (a + count))
+                                        ((my_rank * tuple_partition_size) + (a + tuples_read))
                                                         * (sizeof(int)
                                                                         + (num_dims
                                                                                         * sizeof(int))
@@ -503,8 +523,8 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
 
                 }
 
-                increment = tuple_partition_size / reading_rate;
-                count += increment;
+                read_increment = tuple_partition_size / reading_rate;
+                tuples_read += read_increment;
 
         }
 
