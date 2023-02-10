@@ -127,16 +127,7 @@ int main(int argc, char *argv[])
                 	cube->QueryCube(query, my_rank, num_dims, output_folder, num_procs);
             	}
             	else if (cube_algorithm == "fragcubing"){
-					//Operadores inquire "?" são convertidos para o valor inteiro "-2"
-					//Se não tiver nenhum inquire, é uma consulta do tipo point
-					if (std::find(query.begin(), query.end(), -2) == query.end())
-					{
-						//Resolve consulta pontual
-						cube->PointQuery(query, my_rank, num_dims, output_folder, num_procs);
-					} else {
-						//Resolve consulta inquire
-						cube->InquireQuery(query, my_rank, num_dims, output_folder, num_procs);
-					}
+            		//cube->QueryCube(query, my_rank, num_dims, output_folder, num_procs);
             	}
             }
 

@@ -5,358 +5,17 @@
 #include <cmath>
 #include <chrono>
 
-auto tbroadcastall2 = 0;
-auto treduceall2 = 0;
-auto totherall2 = 0;
-
-// function to print combinations that contain
-// one element from each of the given arrays
-void FragCube::InquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs)
-{
-    // number of arrays
-    int n = arr.size();
-
-    // to keep track of next element in each of
-    // the n arrays
-    int* indices = new int[n];
-
-    // initialize with first element's index
-    for (int i = 0; i < n; i++)
-        indices[i] = 0;
-
-    while (1) {
-
-    	std::vector<int> q;
-
-        // print current combination
-        for (int i = 0; i < n; i++){
-        	q.push_back(arr[i][indices[i]]);
-        }
-        my_queries.push_back(q);
-
-        // find the rightmost array that has more
-        // elements left after the current element
-        // in that array
-        int next = n - 1;
-        while (next >= 0 &&
-              (indices[next] + 1 >= arr[next].size())){
-            next--;
-        }
-
-        // no such array is found so no more
-        // combinations left
-        if (next < 0){
-            return;
-        }
-        // if found move to next element in that
-        // array
-        indices[next]++;
-
-        // for all arrays to the right of this
-        // array current index again points to
-        // first element
-        for (int i = next + 1; i < n; i++)
-            indices[i] = 0;
-    }
-}
-
-std::vector<int> intersection2(std::vector<int> const& left_vector, std::vector<int> const& right_vector) {
-    auto left = left_vector.begin();
-    auto left_end = left_vector.end();
-    auto right = right_vector.begin();
-    auto right_end = right_vector.end();
-
-    assert(std::is_sorted(left, left_end));
-    assert(std::is_sorted(right, right_end));
-
-    std::vector<int> result;
-
-    while (left != left_end && right != right_end) {
-        if (*left == *right) {
-            result.push_back(*left);
-            ++left;
-            ++right;
-            continue;
-        }
-
-        if (*left < *right) {
-            ++left;
-            continue;
-        }
-
-        assert(*left > *right);
-        ++right;
-    }
-
-    return result;
-}
-
-std::vector <int> getIntersectionC2(std::vector < std::vector <int> > &sets){
-	std::vector <int> last_intersection_tids = sets[0];
-	std::vector<int> curr_intersection_tids;
-
-	for (std::size_t i = 1; i < sets.size(); ++i) {
-		curr_intersection_tids = intersection2(last_intersection_tids, sets[i]);
-		std::swap(last_intersection_tids, curr_intersection_tids);
-		curr_intersection_tids.clear();
-	}
-
-	return last_intersection_tids;
-}
-
 void FragCube::PointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
-	int result;
-	float sum = 0, result_sum;
-	std::vector<int> tmp_result;
-	std::vector<int> buffer;
-	std::vector<int> dimsubset;
-	std::vector<int> dimvalues;
-	std::vector<
-			std::pair<std::vector<int>,
-					std::map<std::vector<int>, std::vector<int>>>>::const_iterator it;
-	std::map<std::vector<int>, std::vector<int>>::const_iterator it2;
-	std::vector<std::vector<int>> sets;
 
-	std::chrono::steady_clock::time_point begin_compute; //Começou a computar consulta
-
-	std::chrono::steady_clock::time_point end_compute; //Terminou de computar consulta
-
-	std::chrono::steady_clock::time_point begin_reduce; //Começou o reduce
-
-	std::chrono::steady_clock::time_point end_reduce; //Terminou o reduce
-
-	begin_compute = std::chrono::steady_clock::now();
-	if (std::find(q.begin(), q.end(), -2) == q.end()) { //no inquires
-		for (unsigned int i = 0; i < q.size(); i++) {
-			if (q[i] != -1) {
-				dimsubset.push_back(i);
-				dimvalues.push_back(q[i]);
-			}
-		}
-
-		it =
-				std::find_if(cuboids.begin(), cuboids.end(),
-						[&dimsubset](const std::pair<std::vector<int>,std::map<std::vector<int>, std::vector<int>>>& element)
-						{	return element.first == dimsubset;});
-
-		if (it != cuboids.end()) {
-			it2 = it->second.find(dimvalues);
-			if (it2 != it->second.end()) {
-				sets.push_back(it2->second);
-			} else {
-				sets.push_back(std::vector<int>());
-			}
-		} else {
-			for (unsigned int i = 0; i < q.size(); i++) {
-				if (q[i] != -1) {
-					std::vector<int> tmpdim, tmpdim_value;
-					tmpdim.push_back(i);
-					tmpdim_value.push_back(q[i]);
-					it =
-							std::find_if(cuboids.begin(), cuboids.end(),
-									[&tmpdim](const std::pair<std::vector<int>,std::map<std::vector<int>, std::vector<int>>>& element)
-									{	return element.first == tmpdim;});
-					it2 = it->second.find(tmpdim_value);
-					if (it2 != it->second.end()) {
-						sets.push_back(it2->second);
-					} else {
-						sets.push_back(std::vector<int>());
-					}
-				}
-			}
-
-		}
-		if (sets.empty()) {
-			for (std::unordered_map<int, std::vector<float>>::iterator it =
-					imeas.begin(); it != imeas.end(); ++it) {
-				tmp_result.push_back(it->first);
-			}
-		}
-
-		else if (sets.size() == 1) {
-			tmp_result.assign(sets.front().begin(), sets.front().end());
-		}
-
-		else {
-
-			std::set_intersection(sets[0].begin(), sets[0].end(),
-					sets[1].begin(), sets[1].end(),
-					std::back_inserter(tmp_result));
-
-			if (sets.size() > 2) {
-
-				for (size_t i = 2; i < sets.size(); ++i) {
-					buffer.clear();
-					std::set_intersection(tmp_result.begin(), tmp_result.end(),
-							sets[i].begin(), sets[i].end(),
-							std::back_inserter(buffer));
-
-					swap(tmp_result, buffer);
-				}
-			}
-		}
-
-		int my_result = tmp_result.size();
-
-		begin_reduce = std::chrono::steady_clock::now();
-		MPI_Reduce(&my_result, &result, 1, MPI_FLOAT, MPI_SUM, 0,
-				MPI_COMM_WORLD);
-		end_reduce = std::chrono::steady_clock::now();
-
-		end_compute = std::chrono::steady_clock::now();
-
-		if (my_rank == 0) {
-			auto t1 = std::chrono::duration_cast<std::chrono::microseconds> (end_compute - begin_compute).count();
-			auto t2 = std::chrono::duration_cast<std::chrono::microseconds> (end_reduce - begin_reduce).count();
-			if (result > 0) {
-				for (auto i : q) {
-					if (i == -1) {
-						std::cout << '*' << ' ';
-					} else {
-						std::cout << i << ' ';
-					}
-
-				}
-				//std::cout << ": " << result << " t=" << t1 << "[µs]" <<
-				//		" reduce=" << t2 << "[µs]" <<
-				//		" other=" << t1 - t2 << "[µs]" << std::endl;
-				std::cout << ": " << result << std::endl;
-				treduceall2 += t2;
-				totherall2 += (t1 - t2);
-			}
-		}
-	} else {
-		std::cout << "Query has at least one inquire" << std::endl;
-	}
 }
 
 void FragCube::InquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
 
-	//Listas de atributos em cada dimensão possíveis para esse inquire
-	std::vector<std::vector<int>> lists_of_attributes;
-
-	//Listas de TIDs fazem parte da resposta da consulta
-	std::vector<std::vector<int>> lists_of_tids;
-
-	//A intereseção final da lista anterior - apenas os BIDs comuns a todas as listas
-	std::set<int> last_intersection_tids;
-
-	std::chrono::steady_clock::time_point begin_broadcast; //Começou o broadcast
-
-	std::chrono::steady_clock::time_point end_broadcast; //Terminou o broadcast
-
-	//Percorra a consulta e, quando não encontrar agregação ou inquire, pegue a lista de TIDs da memória
-	for(std::size_t i = 0; i < q.size(); i++){
-		if (q[i] != -1 && q[i] != -2)
-		{
-			lists_of_tids.push_back(iindex[i][q[i]]);
-		}
-	}
-
-	//Guardamos na variável o valor da interseção de todas as listas
-    copy(lists_of_tids[0].begin(),lists_of_tids[0].end(),inserter(last_intersection_tids, last_intersection_tids.end()));
-	std::set<int> curr_intersection_tids;
-
-	//https://stackoverflow.com/questions/25505868/the-intersection-of-multiple-sorted-arrays
-	for (std::size_t i = 1; i < lists_of_tids.size(); ++i) {
-		std::set_intersection(last_intersection_tids.begin(), last_intersection_tids.end(),
-			lists_of_tids[i].begin(), lists_of_tids[i].end(),
-			std::inserter(curr_intersection_tids, curr_intersection_tids.begin()));
-		swap(last_intersection_tids, curr_intersection_tids);
-		curr_intersection_tids.clear();
-	}
-
-	for(std::size_t i = 0; i < q.size(); i++){
-		std::vector<int> attribs;
-		if (q[i] == -2)
-		{
-			attribs.push_back(-1);
-			for (auto& it: iindex[i]) {
-				//std::cout << it.first << " ";
-				//attribs.push_back(it.first);
-
-				std::set<int> curr_intersection_tids, curr_tids;
-			    copy(it.second.begin(),it.second.end(),inserter(curr_tids, curr_tids.end()));
-
-				std::set_intersection(curr_tids.begin(), curr_tids.end(),
-						last_intersection_tids.begin(), last_intersection_tids.end(),
-					std::inserter(curr_intersection_tids, curr_intersection_tids.begin()));
-
-				if(curr_intersection_tids.size() > 0){
-					attribs.push_back(it.first);
-				}
-
-				curr_intersection_tids.clear();
-			}
-			sort( attribs.begin(), attribs.end() );
-			attribs.erase( unique( attribs.begin(), attribs.end() ), attribs.end() );
-			lists_of_attributes.insert(lists_of_attributes.begin() + i, attribs);
-		}
-		else{
-			attribs.push_back(q[i]);
-			lists_of_attributes.insert(lists_of_attributes.begin() + i, attribs);
-		}
-	}
-
-	/*for (int i = 0; i < lists_of_attributes.size(); i++)
-	{
-	    for (int j = 0; j < lists_of_attributes[i].size(); j++)
-	    {
-	        std::cout << lists_of_attributes[i][j] << " ";
-	    }
-	    std::cout << "\n";
-	}*/
-
-
-	InquirePointQuery(lists_of_attributes, my_rank, num_dims, output_folder, num_procs);
-
-	MPI_Barrier(MPI_COMM_WORLD);
-
-	tbroadcastall2 = 0;
-
-	for(int i = 0; i < num_procs; i++){
-
-		int num_queries = my_queries.size();
-		std::vector<int> q;
-		q.resize(num_dims);
-
-		begin_broadcast = std::chrono::steady_clock::now();
-		MPI_Bcast(&num_queries, 1, MPI_INT, i, MPI_COMM_WORLD);
-		end_broadcast = std::chrono::steady_clock::now();
-
-		tbroadcastall2 += std::chrono::duration_cast<std::chrono::microseconds> (end_broadcast - begin_broadcast).count();
-
-		for(int j=0; j<num_queries;j++){
-			if(my_rank == i){
-				q = my_queries[j];
-			}
-
-			begin_broadcast = std::chrono::steady_clock::now();
-			MPI_Bcast(&q[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
-			end_broadcast = std::chrono::steady_clock::now();
-
-			tbroadcastall2 += std::chrono::duration_cast<std::chrono::microseconds> (end_broadcast - begin_broadcast).count();
-
-			if(my_rank != i){
-				for(int k=0; k<my_queries.size(); k++){
-					if(my_queries[k] == q){
-						my_queries.erase(my_queries.begin() + k);
-					}
-				}
-			}
-
-			PointQuery(q, my_rank, num_dims, output_folder, num_procs);
-		}
-	}
-
-	if(my_rank == 0){
-		std::cout << "Time broadcasting = " << tbroadcastall2 << "[µs]" << std::endl;
-		std::cout << "Time reducing = " << treduceall2 << "[µs]" << std::endl;
-		std::cout << "Time other = " << totherall2 << "[µs]" << std::endl;
-	}
-
 }
 
+void FragCube::InquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs){
+
+}
 
 FragCube::FragCube()
 {
@@ -425,258 +84,341 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         	tuple.meas.resize(num_meas);
         }
 
-        int fragment_size = 1;
+        ///////////////////// ESPECÍFICO DO ALGORITMO FRAGCUBING /////////////////////
+
+        //Tamanho de fragmento, ou seja, quantas dimensões serão usadas em cada cuboide
+        std::vector<T>::size_type fragment_size = 2;
+
+        //Dimensões de um determinado cuboide, se a divisão for exata deve ter sempre o tamanho do fragmento definido
+        std::vector<int> fragment_dims;
+
+        //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura Inverted Index
         iindex.resize(num_dims);
 
-        std::vector<int> dimsubset;
-        std::vector<int> idims(num_dims);
-        std::vector<std::vector<int>> allDimVecs;
-        std::vector<int> DimVec;
-        std::vector<int> CuboidCell;
-        std::vector<int> tmp_result;
-        std::vector<int> buffer;
-        std::vector<std::vector<int>> sets;
-        std::iota(std::begin(idims), std::end(idims), 0); // Fill with 0, 1, ..., num_dims.
-        std::unordered_map<int, std::vector<int>>::const_iterator iter;
-
+        //Enquanto não ler todas as tuplas dessa partição
         while (tuples_read < tuple_partition_size)
         {
-                if ((tuples_read + read_increment) > tuple_partition_size)
+    		//Verifica se na próxima leitura que vai fazer não irá passar do tamanho máximo da partição
+    		//Se necessário, reduz o incremento e o buffer de leitura
+            if ((tuples_read + read_increment) > tuple_partition_size)
+            {
+            		//Recalcula o tamanho do incremento apenas com as tuplas restantes
+                    read_increment = tuple_partition_size - tuples_read;
+
+                    //Redimensiona, reduzindo potencialmente o tamanho do buffer de leitura
+                    read_buffer.resize(read_increment);
+            }
+
+            //Lê as tuplas do incremento atual e salva no buffer de leitura
+            for (int next_tuple = 0; next_tuple < read_increment; ++next_tuple)
+            {
+						//Soma o tamanho das partições de todos os os processos anteriores ao atual
+						//Assim consegue saber em que ponto do arquivo deve começar a ler os dados
+						int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
+
+						//A posição do próximo TID no arquivo binário, indica o começo da próxima tupla que deve ser lida
+						//Deve pular as tuplas de partições de outros processos e também tuplas que já foram lidas
+						//As tuplas já lidas devem ser contadas tanto as lidas nesse incremento quanto o total de lidas
+						//Calcula com base no tamanho em bytes de uma tupla
+						tid_offset =
+										(sum_of_partitions + (next_tuple + tuples_read))
+														* (sizeof(int)
+																		+ (num_dims
+																						* sizeof(int))
+																		+ (num_meas
+																						* sizeof(float)));
+						//A posição das próximas dimensões no arquivo binário
+						//Se sabemos a posição do TID, e ele é inteiro, as dimensões começam nessa posição acrescida to tamanho do TID
+						dims_offset = tid_offset + sizeof(int);
+
+						//A posição das próximas medidas no arquivo binário
+						//Se sabemos a posição das dimensões, e todas são inteiras, as medidas começam nessa posição acrescida dos tamanhos das dimensões
+						meas_offset = dims_offset
+										+ ((num_dims) * sizeof(int));
+
+						//Leia um inteiro para o TID e guarde no buffer
+						MPI_File_read_at(data, tid_offset, &read_buffer[next_tuple], 1,
+						MPI_INT,
+						MPI_STATUS_IGNORE);
+
+						//Leia todas as dimensões da tupla e guarde no buffer
+						MPI_File_read_at(data, dims_offset,
+										&read_buffer[next_tuple].dims[0], 1,
+										MPI_TUPLE_DIMS, MPI_STATUS_IGNORE);
+
+						//Leia todas as medidas da tupla e guarde no buffer
+						MPI_File_read_at(data, meas_offset,
+										&read_buffer[next_tuple].meas[0], 1,
+										MPI_TUPLE_MEAS,
+										MPI_STATUS_IGNORE);
+
+				}
+
+				//Nesse ponto o buffer de leitura foi preenchido
+				//NÃO leu todas as tuplas da partição, apenas um incremento
+				//Ex: pode ser que o tamanho da partição seja 1 milhão e aqui leu as primeiras 250.000
+
+				//Para cada uma das tuplas do buffer
+            	for (TupleType &tuple : read_buffer)
                 {
-                		read_increment = tuple_partition_size - tuples_read;
-                        read_buffer.resize(read_increment);
-                }
+						//A princípio considere que a tupla é "útil"
+						bool use_tuple = true;
 
-                for (int a = 0; a < read_increment; ++a)
-                {
-                        tid_offset =
-                                        ((my_rank * tuple_partition_size) + (a + tuples_read))
-                                                        * (sizeof(int)
-                                                                        + (num_dims
-                                                                                        * sizeof(int))
-                                                                        + (num_meas
-                                                                                        * sizeof(float)));
-                        dims_offset = tid_offset + sizeof(int);
-                        meas_offset = dims_offset
-                                        + ((num_dims) * sizeof(int));
-                        MPI_File_read_at(data, tid_offset, &read_buffer[a], 1,
-                        MPI_INT,
-                        MPI_STATUS_IGNORE);
-                        MPI_File_read_at(data, dims_offset,
-                                        &read_buffer[a].dims[0], 1,
-                                        MPI_TUPLE_DIMS, MPI_STATUS_IGNORE);
-                        MPI_File_read_at(data, meas_offset,
-                                        &read_buffer[a].meas[0], 1,
-                                        MPI_TUPLE_MEAS,
-                                        MPI_STATUS_IGNORE);
+						//Se cubo sob demanda, verifique se a tupla é realmente "útil"
+						if (on_demand)
+						{
+								//Quantidade de consultas que envolvem a tupla
+								int useful_in_queries = 0;
 
-                }
+								//Para cada consulta a ser executada
+								for (std::vector<int> &query : queries)
+								{
+										//Se for útil para pelo menos uma consulta é suficiente
+										//Não precisa verificar se é util para todas
+										if (useful_in_queries == 0)
+										{
+												//Valores úteis na tupla para a consulta
+												int useful_values = 0;
 
-                for (TupleType &t : read_buffer)
-                {
-                        bool use_tuple = true;
+												//Veja se cada valor da tupla bate com a consulta
+												//Também valida se consulta tem agregação ou inquire
+												for (int dim_number = 0; dim_number < num_dims;
+														dim_number++)
+												{
+														//A tupla é útil se o o valor na dimensão for
+														//exatamente o valor solicitado na consulta ou
+														//se para a dimensão a consulta envolve agregação
+														//ou inquire
+														if ((tuple.dims[dim_number] == query[dim_number])
+																		|| query[dim_number]
+																						== -1
+																		|| query[dim_number]
+																						== -2)
+														{
+																//Encontrou um valor útil na consulta
+																useful_values++;
+														}
+												}
 
-                        if (on_demand)
-                        {
-                                int useful_in_queries = 0;
-                                for (std::vector<int> &q : queries)
-                                {
-                                        if (useful_in_queries == 0)
-                                        {
-                                                int useful_values = 0;
-                                                for (int x = 0; x < num_dims;
-                                                                x++)
-                                                {
-                                                        if ((t.dims[x] == q[x])
-                                                                        || q[x]
-                                                                                        == -1
-                                                                        || q[x]
-                                                                                        == -2)
-                                                        {
-                                                                useful_values++;
-                                                        }
-                                                }
-                                                if (useful_values == num_dims)
-                                                {
-                                                        useful_in_queries++;
-                                                }
-                                        }
-                                }
-                                if (useful_in_queries == 0)
-                                {
-                                        use_tuple = false;
-                                }
-                        }
+												//Se todos os valores atenderem a consulta, então a tupla é útil
+												if (useful_values == num_dims)
+												{
+														useful_in_queries++;
+												}
+										}
+								}
+
+								//Se não for útil para nenhuma consulta, marque para não usar
+								if(useful_in_queries == 0){
+									use_tuple = false;
+								}
+						}
+
 
                         if (use_tuple)
                         {
-                                for (int j = 0; j < num_dims; ++j)
+                                for (int dim_number = 0; dim_number < num_dims; ++dim_number)
                                 {
-                                        iindex[j][t.dims[j]].push_back(t.tid);
+                                        iindex[dim_number][tuple.dims[dim_number]].push_back(tuple.tid);
                                 }
 
-                                for (int k = 0; k < num_meas; ++k)
+                                for (int meas_number = 0; meas_number < num_meas; ++meas_number)
                                 {
-                                        imeas[t.tid].push_back(t.meas[k]);
+                                        imeas[tuple.tid].push_back(tuple.meas[meas_number]);
                                 }
                         }
 
                 }
 
+                //Pode ser que o incremento de leitura tenha sido alterado acima, então volta para o valor padrão
                 read_increment = tuple_partition_size / reading_rate;
+
+                //Adiciona a quantidade de tuplas recém lidas ao total de tuplas lidas
                 tuples_read += read_increment;
 
         }
 
-        int dims_proc = 0;
+        //Agora, a partir dos índices, pode pré-computar cuboides
+        //Passamos novamente por todas as dimensões para isolar aquelas que fazem parte de cada cuboide
+        for (int dim_number = 0; dim_number < num_dims; ++dim_number){
 
-        while (dims_proc < num_dims)
-        {
-                for (int s = 1; s < (1 << fragment_size); ++s) // iterate through all non-null sets
-                {
-                        for (int e = 0; e < fragment_size; ++e) // for each set element
-                        {
-                                if (s & (1 << e)) // test for membership of set
-                                {
-                                        dimsubset.push_back(
-                                                        idims[e + dims_proc]);
-                                }
-                        }
+        	//A dimensão é incluída em um fragmento
+        	fragment_dims.push_back(dim_number);
 
-                        //Hold the cells of this cuboid
-                        std::map<std::vector<int>, std::vector<int>> cuboid;
+        	//Verificamos - o fragmento atingiu o tamanho desejado (ou acabaram as dimensões e deverá ser um fragmento um pouco menor?)
+        	if(fragment_dims.size() == fragment_size || dim_number == num_dims - 1){
 
-                        for (auto num2 : dimsubset)
-                        {
-                                for (auto &kv : iindex[num2])
-                                {
-                                        //std::cout << kv.first << ' ';
-                                        DimVec.push_back(kv.first);
-                                }
-                                allDimVecs.push_back(DimVec);
-                                DimVec.clear();
-                        }
+        		//Aqui isolamos as dimensões que fazem parte desse fragmento
+        		if(my_rank == 0){
+					std::cout << "Dimensões [";
+					for(auto & e : fragment_dims){
+						std::cout << e << " ";
+					}
+					std::cout << "]" << std::endl;
 
-                        size_t max = 1;
+					//A quantidade de cuboides para esse fragmento é exponencial com base no seu tamanho
+					int fragment_cuboids = IntegerPow(2, fragment_dims.size());
 
-                        for (auto const &v : allDimVecs)
-                                max *= v.size();
+					//Vamos calcular todos os cuboides desse fragmento
+					for(int cuboid_number = 1 ; cuboid_number < fragment_cuboids ; cuboid_number++){
 
-                        for (size_t i = 0; i < max; i++)
-                        {
-                                auto temp = i;
-                                for (auto const &vec : allDimVecs)
-                                {
-                                        auto index = temp % vec.size();
-                                        temp /= vec.size();
-                                        CuboidCell.push_back(vec[index]);
-                                }
+						//Aqui obtemos o numero de cuboide, mas na verdade isso será tratado como inteiro (e.g: 00000001)
+						int binary = cuboid_number;
 
-                                for (unsigned int z = 0; z < dimsubset.size();
-                                                z++)
-                                {
-                                        if (CuboidCell[z] != -1)
-                                        {
-                                                iter =
-                                                                iindex[dimsubset[z]].find(
-                                                                                CuboidCell[z]);
-                                                if (iter
-                                                                != iindex[dimsubset[z]].end())
-                                                {
-                                                        sets.push_back(
-                                                                        iter->second);
-                                                }
-                                                else
-                                                {
-                                                        sets.push_back(
-                                                                        std::vector<
-                                                                                        int>());
-                                                }
-                                        }
-                                }
+						std::vector<int> cuboid_dims;
 
-                                if (sets.empty())
-                                {
-                                        for (std::unordered_map<int,
-                                                        std::vector<float>>::iterator it =
-                                                        imeas.begin();
-                                                        it != imeas.end();
-                                                        ++it)
-                                        {
-                                                tmp_result.push_back(
-                                                                it->first);
-                                        }
-                                }
+						std::cout << "Cuboide >>>> [";
 
-                                else if (sets.size() == 1)
-                                {
-                                        tmp_result.assign(
-                                                        sets.front().begin(),
-                                                        sets.front().end());
-                                }
+						//Aqui fazemos uma contagem binária para gerar as combinações com um mínimo de memória e tempo
+						//00000001 = A
+						//00000010 = B
+						//00000011 = AB
+						//etc.
+						for(std::vector<T>::size_type dim_index = 0 ; dim_index < fragment_dims.size() ; dim_index++){
 
-                                else
-                                {
+							//Se o bit for 1 então será usado na combinação
+							if (binary & 1){    // Verifica um bit do número.
+								std::cout << fragment_dims[dim_index] << " ";
+								cuboid_dims.push_back(fragment_dims[dim_index]);
+							}
 
-                                        std::set_intersection(sets[0].begin(),
-                                                        sets[0].end(),
-                                                        sets[1].begin(),
-                                                        sets[1].end(),
-                                                        std::back_inserter(
-                                                                        tmp_result));
+							binary = binary >> 1;  //Faz a rotação de bits para ir para a próxima combinação
+						}
+						std::cout << "]" << std::endl;
 
-                                        if (sets.size() > 2)
-                                        {
+						//No caso do inquire irá armazenar listas de valores de atributo
+						//Essas listas serão usadas para gerar as consultas pontuais derivadas do inquire
+						std::vector<std::vector<int>> lists_of_attribs;
 
-                                                for (size_t i = 2;
-                                                                i
-                                                                                < sets.size();
-                                                                ++i)
-                                                {
-                                                        buffer.clear();
-                                                        std::set_intersection(
-                                                                        tmp_result.begin(),
-                                                                        tmp_result.end(),
-                                                                        sets[i].begin(),
-                                                                        sets[i].end(),
-                                                                        std::back_inserter(
-                                                                                        buffer));
+						//Para cada uma das dimensões associadas à consultas inquire
+						for(auto & dim_number : cuboid_dims){
 
-                                                        swap(tmp_result,
-                                                                        buffer);
-                                                }
-                                        }
-                                }
+							//Irá guardar os valores de atributo possíveis na dimensão
+							std::set<int> attribs_set;
 
-                                std::vector<int> s(tmp_result.begin(),
-                                                tmp_result.end());
+							//Um valor extra necessário é o de agregação '*' pois não está nos dados e é usado em consulta válida de inquire
+							//E.g: uma dimensão com atributos [1,2] na verdade tem os atributos [-1,1,2], onde -1 indica TODOS
+							attribs_set.insert(-1);
 
-                                //insert cuboid into map of cuboids
-                                if(!s.empty()){
-                                cuboid[CuboidCell] = s;
-                                }
+							//Para cada par associando um valor de atributo a uma lista de TIDs
+							for (auto& attrib_pair_tids: iindex[dim_number]) {
+								//Extraia apenas o valor de atributo, o primeiro elemento do pair, e salve na lista de atributos
+								attribs_set.insert(attrib_pair_tids.first);
+							}
 
-                                tmp_result.clear();
-                                buffer.clear();
-                                sets.clear();
-                                CuboidCell.clear();
-                        }
+							//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
+							std::vector<int> attribs_vector(attribs_set.begin(), attribs_set.end());
 
-                        //cuboid inserted into general list of cubes
-                        cuboids.push_back(std::make_pair(dimsubset, cuboid));
-                        allDimVecs.clear();
-                        dimsubset.clear();
-                }
-                dims_proc += fragment_size;
-                if (num_dims - dims_proc < fragment_size)
-                {
-                        fragment_size = num_dims - dims_proc;
-                }
+							//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
+							lists_of_attribs.push_back(attribs_vector);
+
+						}
+
+						//Agora serão geradas as combinações de consultas associadas ao inquire
+						//https://www.geeksforgeeks.org/combinations-from-n-arrays-picking-one-element-from-each-array/
+
+						//Conta a quantidade de listas de atributos
+						int number_of_lists = lists_of_attribs.size();
+
+						//Guarda posições de índices de cada uma das listas
+						//Essas posições indicam qual o índice da lista está sendo usado para a combinação
+						int* indices = new int[number_of_lists];
+
+						//Inicialmente as combinações são geradas partindo do primeiro índice das listas
+						for (int i = 0; i < number_of_lists; i++){
+							indices[i] = 0;
+						}
+
+					    while (1) {
+
+							//Listas de TIDs fazem parte da resposta da consulta
+							//Cada posição do vector armazena uma lista de TIDs
+							std::vector<std::vector<int>> lists_of_tids;
+
+							//Armazena a consulta gerada pelo processo nessa iteração
+							std::vector<int> query(lists_of_attribs.size());
+
+							std::cout << "Celula >>>>>>>> [";
+
+							//Gera a consulta com base na próxima combinaçao de atributos
+							for (int i = 0; i < number_of_lists; i++){
+								std::cout << lists_of_attribs[i][indices[i]] << " ";
+								query[i] = lists_of_attribs[i][indices[i]];
+							}
+
+							std::cout << "]: ";
+
+							//Para cada uma das dimensões associadas à consultas point
+							for(int attr_index = 0; attr_index < query.size(); attr_index++){
+
+								//Armazena os TIDs associados ao valor de atributo de uma das dimensões da consulta
+								std::vector<int> tids;
+
+								std::vector<int> tids_bbloc;
+
+								//Acessa uma única vez a estrutura bCubingBloc para obter os TIDS para esse BID
+								if(query[attr_index] != -1){
+									tids_bbloc = iindex[cuboid_dims[attr_index]][query[attr_index]];
+								} else {
+									tids_bbloc.resize(tuple_partition_size);
+									std::iota(tids_bbloc.begin(), tids_bbloc.end(), 1);
+								}
+
+
+								//Adiciona às listas de TID os TIDs da dimensão associada à point, para esse BID, com base no valor da consulta
+								tids.insert(std::end(tids), std::begin(tids_bbloc), std::end(tids_bbloc));
+
+								//Vai armazenar uma quantidade de listas igual à quantidade de consultas do tipo point
+								lists_of_tids.push_back(tids);
+
+							}
+
+							//Faz a interseção das listas de TIDS encontradas
+							std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
+
+							//Atualiza o valor de COUNT localmente para a consulta
+							std::cout << tids_intersection.size() << std::endl;
+
+							// Começa do final e volta procurando
+							// a lista com mais elementos a serem
+							// combinados
+							int next = number_of_lists - 1;
+
+							while (next >= 0 &&
+								  (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
+								next--;
+
+							// Nenhuma lista encontrada
+							// então não há mais combinações
+							if (next < 0)
+								break;
+
+							// Se encontrou move-se para o próximo
+							// elemento na lista
+							indices[next]++;
+
+							// Para todas as listas à direita desta
+							// o índice de combinações novamnete retorna
+							// para o primeiro elemento
+							for (int i = next + 1; i < number_of_lists; i++)
+								indices[i] = 0;
+					    }
+					}
+        		}
+
+        		fragment_dims.clear();
+
+        	}
+
         }
 
+        //Limpa o espaço em memória para o buffer de leitura
         read_buffer.clear();
 
+        //Barreira de sincronismo - só continua quando todos os processos chegarem até aqui
         MPI_Barrier(MPI_COMM_WORLD);
+
+        //Todos os processos fecham a conexão com o arquivo de entrada
         MPI_File_close(&data);
 
 }

@@ -11,6 +11,25 @@ DataCube::~DataCube()
 
 }
 
+//Algoritmo de exponenciação por quadrados, necessário para calcular potências potências de números inteiros
+//O método pow() disponível nas principais bibliotecas de matemática da linguagem usa doubles, e não é confiável
+//https://stackoverflow.com/a/101613
+int DataCube::IntegerPow(int base, int exp)
+{
+    int result = 1;
+    for (;;)
+    {
+        if (exp & 1)
+            result *= base;
+        exp >>= 1;
+        if (!exp)
+            break;
+        base *= base;
+    }
+
+    return result;
+}
+
 std::vector<int> DataCube::IntersectTwoVectors(std::vector<int> const& vector_a, std::vector<int> const& vector_b) {
 
 	//Primeira posição da primeira lista de inteiros

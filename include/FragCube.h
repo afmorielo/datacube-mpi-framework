@@ -23,7 +23,7 @@ protected:
 private:
         std::vector<std::unordered_map<int, std::vector<int>>> iindex;
         std::unordered_map<int, std::vector<float>> imeas;
-        std::vector<std::pair<std::vector<int>,std::map<std::vector<int>, std::vector<int>>>> cuboids;
+        std::map<std::vector<int>,std::map<std::vector<int>, std::vector<int>>> cuboids;
         std::vector<std::vector<int>> my_queries;
 };
 
