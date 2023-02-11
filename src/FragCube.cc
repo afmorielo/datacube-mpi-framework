@@ -87,7 +87,7 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         ///////////////////// ESPECÍFICO DO ALGORITMO FRAGCUBING /////////////////////
 
         //Tamanho de fragmento, ou seja, quantas dimensões serão usadas em cada cuboide
-        std::vector<T>::size_type fragment_size = 2;
+        std::vector<T>::size_type fragment_size = 3;
 
         //Dimensões de um determinado cuboide, se a divisão for exata deve ter sempre o tamanho do fragmento definido
         std::vector<int> fragment_dims;
@@ -248,164 +248,135 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         	//Verificamos - o fragmento atingiu o tamanho desejado (ou acabaram as dimensões e deverá ser um fragmento um pouco menor?)
         	if(fragment_dims.size() == fragment_size || dim_number == num_dims - 1){
 
-        		//Aqui isolamos as dimensões que fazem parte desse fragmento
-        		if(my_rank == 0){
-					std::cout << "Dimensões [";
-					for(auto & e : fragment_dims){
-						std::cout << e << " ";
+				//Aqui isolamos as dimensões que fazem parte desse fragmento
+				//A quantidade de cuboides para esse fragmento é exponencial com base no seu tamanho
+				int fragment_cuboids_total = IntegerPow(2, fragment_dims.size());
+
+				//Vamos calcular todos os cuboides desse fragmento
+				for(int cuboid_number = 1 ; cuboid_number < fragment_cuboids_total ; cuboid_number++){
+
+					//Aqui obtemos o numero de cuboide, mas na verdade isso será tratado como inteiro (e.g: 00000001)
+					int binary = cuboid_number;
+
+					//Essa é a lista de dimensões desse cuboide, isso varia, por exemplo (A,B,AB,AC,BC,ABC)
+					std::vector<int> cuboid_dims;
+
+					//Aqui fazemos uma contagem binária para gerar as combinações com um mínimo de memória e tempo
+					//00000001 = A
+					//00000010 = B
+					//00000011 = AB
+					//etc.
+					for(std::vector<T>::size_type dim_index = 0 ; dim_index < fragment_dims.size() ; dim_index++){
+
+						//Se o bit for 1 então será usado na combinação
+						if (binary & 1){    // Verifica um bit do número.
+							cuboid_dims.push_back(fragment_dims[dim_index]);
+						}
+
+						binary = binary >> 1;  //Faz a rotação de bits para ir para a próxima combinação
 					}
-					std::cout << "]" << std::endl;
 
-					//A quantidade de cuboides para esse fragmento é exponencial com base no seu tamanho
-					int fragment_cuboids = IntegerPow(2, fragment_dims.size());
+					//Gerar o cuboide é equivalente a executar inquires nas dimensões, então obtemos valores de atributo de cada dimensão
+					//Essas listas serão usadas para gerar as consultas pontuais derivadas do inquire
+					std::vector<std::vector<int>> lists_of_attribs;
 
-					//Vamos calcular todos os cuboides desse fragmento
-					for(int cuboid_number = 1 ; cuboid_number < fragment_cuboids ; cuboid_number++){
+					//Para cada uma das dimensões associadas ao cuboide
+					for(auto & dim_number : cuboid_dims){
 
-						//Aqui obtemos o numero de cuboide, mas na verdade isso será tratado como inteiro (e.g: 00000001)
-						int binary = cuboid_number;
+						//Irá guardar os valores de atributo possíveis na dimensão
+						std::set<int> attribs_set;
 
-						std::vector<int> cuboid_dims;
+						//NOS CUBOIDES NÃO É INCLUIDO O VALOR DE AGREGAÇÃO
+						//Um valor extra necessário é o de agregação '*' pois não está nos dados e é usado em consulta válida de inquire
+						//E.g: uma dimensão com atributos [1,2] na verdade tem os atributos [-1,1,2], onde -1 indica TODOS
+						//attribs_set.insert(-1);
 
-						std::cout << "Cuboide >>>> [";
-
-						//Aqui fazemos uma contagem binária para gerar as combinações com um mínimo de memória e tempo
-						//00000001 = A
-						//00000010 = B
-						//00000011 = AB
-						//etc.
-						for(std::vector<T>::size_type dim_index = 0 ; dim_index < fragment_dims.size() ; dim_index++){
-
-							//Se o bit for 1 então será usado na combinação
-							if (binary & 1){    // Verifica um bit do número.
-								std::cout << fragment_dims[dim_index] << " ";
-								cuboid_dims.push_back(fragment_dims[dim_index]);
-							}
-
-							binary = binary >> 1;  //Faz a rotação de bits para ir para a próxima combinação
-						}
-						std::cout << "]" << std::endl;
-
-						//No caso do inquire irá armazenar listas de valores de atributo
-						//Essas listas serão usadas para gerar as consultas pontuais derivadas do inquire
-						std::vector<std::vector<int>> lists_of_attribs;
-
-						//Para cada uma das dimensões associadas à consultas inquire
-						for(auto & dim_number : cuboid_dims){
-
-							//Irá guardar os valores de atributo possíveis na dimensão
-							std::set<int> attribs_set;
-
-							//Um valor extra necessário é o de agregação '*' pois não está nos dados e é usado em consulta válida de inquire
-							//E.g: uma dimensão com atributos [1,2] na verdade tem os atributos [-1,1,2], onde -1 indica TODOS
-							attribs_set.insert(-1);
-
-							//Para cada par associando um valor de atributo a uma lista de TIDs
-							for (auto& attrib_pair_tids: iindex[dim_number]) {
-								//Extraia apenas o valor de atributo, o primeiro elemento do pair, e salve na lista de atributos
-								attribs_set.insert(attrib_pair_tids.first);
-							}
-
-							//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
-							std::vector<int> attribs_vector(attribs_set.begin(), attribs_set.end());
-
-							//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
-							lists_of_attribs.push_back(attribs_vector);
-
+						//Para cada par associando um valor de atributo a uma lista de TIDs
+						for (auto& attrib_pair_tids: iindex[dim_number]) {
+							//Extraia apenas o valor de atributo, o primeiro elemento do pair, e salve na lista de atributos
+							attribs_set.insert(attrib_pair_tids.first);
 						}
 
-						//Agora serão geradas as combinações de consultas associadas ao inquire
-						//https://www.geeksforgeeks.org/combinations-from-n-arrays-picking-one-element-from-each-array/
+						//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
+						std::vector<int> attribs_vector(attribs_set.begin(), attribs_set.end());
 
-						//Conta a quantidade de listas de atributos
-						int number_of_lists = lists_of_attribs.size();
+						//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
+						lists_of_attribs.push_back(attribs_vector);
 
-						//Guarda posições de índices de cada uma das listas
-						//Essas posições indicam qual o índice da lista está sendo usado para a combinação
-						int* indices = new int[number_of_lists];
+					}
 
-						//Inicialmente as combinações são geradas partindo do primeiro índice das listas
+					//Agora serão geradas as combinações de atributos para o cuboide, equivalente ao inquire
+					//https://www.geeksforgeeks.org/combinations-from-n-arrays-picking-one-element-from-each-array/
+
+					//Conta a quantidade de listas de atributos
+					int number_of_lists = lists_of_attribs.size();
+
+					//Guarda posições de índices de cada uma das listas
+					//Essas posições indicam qual o índice da lista está sendo usado para a combinação
+					int* indices = new int[number_of_lists];
+
+					//Inicialmente as combinações são geradas partindo do primeiro índice das listas
+					for (int i = 0; i < number_of_lists; i++){
+						indices[i] = 0;
+					}
+
+					while (1) {
+
+						//Listas de TIDs fazem parte da celula do cuboide, então precisaremos determiná-las
+						//Cada posição do vector armazena uma lista de TIDs
+						std::vector<std::vector<int>> lists_of_tids;
+
+						//Armazena a celula do cuboide gerada pelo processo nessa iteração
+						std::vector<int> cuboid_cell(lists_of_attribs.size());
+
+						//Gera a consulta com base na próxima combinaçao de atributos
 						for (int i = 0; i < number_of_lists; i++){
-							indices[i] = 0;
+							cuboid_cell[i] = lists_of_attribs[i][indices[i]];
 						}
 
-					    while (1) {
+						//Agora que temos os valores de atributo da célula, iremos buscar as listas de TIDs
+						for(std::vector<T>::size_type attr_index = 0; attr_index < cuboid_cell.size(); attr_index++){
 
-							//Listas de TIDs fazem parte da resposta da consulta
-							//Cada posição do vector armazena uma lista de TIDs
-							std::vector<std::vector<int>> lists_of_tids;
+							//Busca os TIDs da estrutura de índice invertido mantida em memória
+							lists_of_tids.push_back(iindex[cuboid_dims[attr_index]][cuboid_cell[attr_index]]);
 
-							//Armazena a consulta gerada pelo processo nessa iteração
-							std::vector<int> query(lists_of_attribs.size());
+						}
 
-							std::cout << "Celula >>>>>>>> [";
+						//Faz a interseção das listas de TIDS encontradas
+						std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
 
-							//Gera a consulta com base na próxima combinaçao de atributos
-							for (int i = 0; i < number_of_lists; i++){
-								std::cout << lists_of_attribs[i][indices[i]] << " ";
-								query[i] = lists_of_attribs[i][indices[i]];
-							}
+						//Somente são inseridos no cuboide quando a interseção não é vazia
+						if(tids_intersection.size() > 0){
+							cuboids[cuboid_dims][cuboid_cell] = tids_intersection;
+						}
 
-							std::cout << "]: ";
+						// Começa do final e volta procurando
+						// a lista com mais elementos a serem
+						// combinados
+						int next = number_of_lists - 1;
 
-							//Para cada uma das dimensões associadas à consultas point
-							for(int attr_index = 0; attr_index < query.size(); attr_index++){
+						while (next >= 0 &&
+							  (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
+							next--;
 
-								//Armazena os TIDs associados ao valor de atributo de uma das dimensões da consulta
-								std::vector<int> tids;
+						// Nenhuma lista encontrada
+						// então não há mais combinações
+						if (next < 0)
+							break;
 
-								std::vector<int> tids_bbloc;
+						// Se encontrou move-se para o próximo
+						// elemento na lista
+						indices[next]++;
 
-								//Acessa uma única vez a estrutura bCubingBloc para obter os TIDS para esse BID
-								if(query[attr_index] != -1){
-									tids_bbloc = iindex[cuboid_dims[attr_index]][query[attr_index]];
-								} else {
-									tids_bbloc.resize(tuple_partition_size);
-									std::iota(tids_bbloc.begin(), tids_bbloc.end(), 1);
-								}
-
-
-								//Adiciona às listas de TID os TIDs da dimensão associada à point, para esse BID, com base no valor da consulta
-								tids.insert(std::end(tids), std::begin(tids_bbloc), std::end(tids_bbloc));
-
-								//Vai armazenar uma quantidade de listas igual à quantidade de consultas do tipo point
-								lists_of_tids.push_back(tids);
-
-							}
-
-							//Faz a interseção das listas de TIDS encontradas
-							std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
-
-							//Atualiza o valor de COUNT localmente para a consulta
-							std::cout << tids_intersection.size() << std::endl;
-
-							// Começa do final e volta procurando
-							// a lista com mais elementos a serem
-							// combinados
-							int next = number_of_lists - 1;
-
-							while (next >= 0 &&
-								  (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
-								next--;
-
-							// Nenhuma lista encontrada
-							// então não há mais combinações
-							if (next < 0)
-								break;
-
-							// Se encontrou move-se para o próximo
-							// elemento na lista
-							indices[next]++;
-
-							// Para todas as listas à direita desta
-							// o índice de combinações novamnete retorna
-							// para o primeiro elemento
-							for (int i = next + 1; i < number_of_lists; i++)
-								indices[i] = 0;
-					    }
+						// Para todas as listas à direita desta
+						// o índice de combinações novamnete retorna
+						// para o primeiro elemento
+						for (int i = next + 1; i < number_of_lists; i++)
+							indices[i] = 0;
 					}
-        		}
+				}
 
+        		//Limpa o espaço em memória para que seja usado pelo próximo fragmento
         		fragment_dims.clear();
 
         	}
