@@ -36,7 +36,109 @@ FragCube::operator=(const FragCube&)
 }
 
 void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs){
-	std::cout << "Consulta" << std::endl;
+
+	//Listas de TIDs fazem parte da resposta da consulta
+	//Cada posição do vector armazena uma lista de TIDs
+	std::vector<std::vector<int>> lists_of_tids;
+
+	//No caso do inquire irá armazenar listas de valores de atributo
+	//Essas listas serão usadas para gerar as consultas pontuais derivadas do inquire
+	std::vector<std::vector<int>> lists_of_attribs(num_dims);
+
+	//Lista de dimensões sobre as quais incide um operador inquire
+	std::vector<int> inquires;
+
+	//Lista de dimensões sobre as quais incide um operador point
+	std::vector<int> points;
+
+	//Lista de atributos buscados sobre os quais incide um operador point
+	std::vector<int> points_attrs;
+
+	//Lista de dimensões sobre as quais incide um operador agregação
+	std::vector<int> aggregations;
+
+	//No momento a consulta retorna apenas COUNT, então aqui é armazenado o resultado local
+	int local_count = 0;
+
+	//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
+	int global_count = 0;
+
+	//O primeiro passo para responder uma consulta com o algoritmo bCubing é resolver operandos do tipo point
+	for(std::vector<T>::size_type operand = 0; operand != query.size(); operand++) {
+
+		//Cada operando está associado a uma das dimensões
+		//O primeiro operando da consulta é da primeira dimensão, o segundo da segunda, etc.
+		int dim = operand;
+
+		//Se o operando não for do tipo agregação '*' ou inquire '?', então é do tipo point, um valor de atributo
+		if (query[operand] != -1 && query[operand] != -2)
+		{
+			//Atualiza a lista de dimensões afetada por points
+			points.push_back(dim);
+
+			//Atualiza a lista de atributos com o valor dessa point (será usado para buscar nos cuboides)
+			points_attrs.push_back(query[operand]);
+		}
+
+		//Se o operando for do tipo inquire '?', identificamos a dimensão afetada
+		if (query[operand] == -2){
+			//Atualiza a lista de dimensões afetada por inquires
+			inquires.push_back(dim);
+		}
+
+		//Se o operando for do tipo agregação '*', identificamos a dimensão afetada
+		if (query[operand] == -1){
+			//Atualiza a lista de dimensões afetada por inquires
+			aggregations.push_back(dim);
+		}
+
+	}
+
+	//Normalmente o ideal seria fazer uma busca melhor aqui
+	//Verificamos se existe um cuboide que engloba TODAS as dimensões associadas a points
+	//No entanto, se não houver o cuboide de mais alto nível poderia combinar cubois menores
+	//E.g: a consulta tem points nas dimensões [0,1,3] e tentamos buscar o cuboide [0,1,3], que não existe
+	//o ideal seria então buscar os cuboides [0,1],[0,3] e [1,3] e só em último caso os cuboides [0],[1],[3]
+	//Mas aqui tentamos o cuboide de mais alto nível e depois partimos direto pro mais baixo nível
+	if(cuboids.count(points) != 0){
+		//Busca a lista de TIDs que já foi pré-calculada
+		std::vector<int> tids_intersection = cuboids[points][points_attrs];
+
+		//Atualiza o valor de COUNT localmente para a consulta
+		local_count = tids_intersection.size();
+
+	} else {
+		//Para cada uma das dimensões associadas à consultas point
+		for(auto & dim_number : points){
+			//Busca os TIDs da estrutura de índice invertido mantida em memória
+			lists_of_tids.push_back(cuboids[{ dim_number }][{ points_attrs[dim_number] }]);
+		}
+
+		//Faz a interseção das listas de TIDS encontradas
+		std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
+
+		//Atualiza o valor de COUNT localmente para a consulta
+		local_count = tids_intersection.size();
+	}
+
+	//Se não tiver nenhuma consulta inquire, deve ter apenas points
+	if(inquires.empty()){
+		//Somente será executado quando todos processos chegarem nesse ponto
+		//Combina as respostas de todos num só processo
+		MPI_Reduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+		if(my_rank == 0){
+			if(global_count > 0){
+				for(auto & operand : query) {
+					(operand == -1) ? std::cout << '*' << ' ' : std::cout << operand << ' ';
+				}
+				std::cout << ": " << global_count << std::endl;
+			}
+		}
+	} else { //Consulta tem pelo menos um operador inquire
+
+
+	}
 }
 
 void FragCube::ComputeCube(std::string cube_table, int num_dims,
@@ -87,7 +189,7 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         ///////////////////// ESPECÍFICO DO ALGORITMO FRAGCUBING /////////////////////
 
         //Tamanho de fragmento, ou seja, quantas dimensões serão usadas em cada cuboide
-        std::vector<T>::size_type fragment_size = 3;
+        std::vector<T>::size_type fragment_size = 2;
 
         //Dimensões de um determinado cuboide, se a divisão for exata deve ter sempre o tamanho do fragmento definido
         std::vector<int> fragment_dims;
@@ -382,6 +484,9 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         	}
 
         }
+
+        //Limpa o espaço em memória do índice invertido pois agora já computou os cuboides
+        iindex.clear();
 
         //Limpa o espaço em memória para o buffer de leitura
         read_buffer.clear();

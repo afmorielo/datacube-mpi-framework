@@ -123,12 +123,7 @@ int main(int argc, char *argv[])
         	//Irá avaliar consulta a consulta que o usuário forneceu
             for (auto &query : queries)
             {
-            	if (cube_algorithm == "bcubing") {
-                	cube->QueryCube(query, my_rank, num_dims, output_folder, num_procs);
-            	}
-            	else if (cube_algorithm == "fragcubing"){
-            		//cube->QueryCube(query, my_rank, num_dims, output_folder, num_procs);
-            	}
+            	cube->QueryCube(query, my_rank, num_dims, output_folder, num_procs);
             }
 
     		//Tempo logo após finalização das consultas
