@@ -29,7 +29,7 @@ OBJS += \
 src/%.o: ../src/%.cc src/subdir.mk
 	@echo 'Building file: $<'
 	@echo 'Invoking: GCC C++ Compiler'
-	mpic++ -I/home/andre/Codebase/ita/eclipse-workspace/pdcubing/include -O0 -g3 -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" -o "$@" "$<"
+	mpic++ -I/home/andre/Codebase/ita/eclipse-workspace/datacube-mpi-framework/include -O0 -g3 -Wall -c -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$@" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 

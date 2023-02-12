@@ -27,9 +27,13 @@ class DataCube
 {
 public:
         virtual ~DataCube();
-        virtual void ComputeCube(std::string cube_table, int num_dims, int num_meas, int partition_size, int ingestion_rate, int tbloc, std::string output_folder, int my_rank,
-                        std::vector<std::vector<int>> queries, bool on_demand) = 0;
-        virtual void QueryCube(std::vector<std::vector<int>> queries, int my_rank, int num_dims, std::string output_folder, int num_procs) = 0;
+        virtual void ComputeCube(std::string cube_table, int num_dims,
+                int num_meas, int tuple_partition_size, int dim_partition_size, int reading_rate, int tbloc, std::string output_folder, int my_rank,
+                std::vector<std::vector<int>> queries, bool on_demand, std::vector<int> tuple_partition_listings, std::vector<int> dim_partition_listings) = 0;
+        virtual void QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs) = 0;
+        virtual std::vector<int> IntersectTwoVectors(std::vector<int> const& vector_a, std::vector<int> const& vector_b);
+        virtual std::vector<int> IntersectMultipleVectors(std::vector<std::vector<int>> &sorted_vectors);
+        virtual int IntegerPow(int base, int exp);
         std::vector<TupleType> read_buffer;
 protected:
 private:
