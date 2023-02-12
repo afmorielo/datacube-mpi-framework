@@ -12,18 +12,6 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/set.hpp>
 
-void BlockCube::PointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
-
-}
-
-void BlockCube::InquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
-
-}
-
-void BlockCube::InquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs){
-
-}
-
 BlockCube::BlockCube()
 {
 }

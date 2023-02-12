@@ -5,18 +5,6 @@
 #include <cmath>
 #include <chrono>
 
-void FragCube::PointQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
-
-}
-
-void FragCube::InquireQuery(std::vector<int> q, int my_rank, int num_dims, std::string output_folder, int num_procs){
-
-}
-
-void FragCube::InquirePointQuery(std::vector<std::vector<int> >& arr, int my_rank, int num_dims, std::string output_folder, int num_procs){
-
-}
-
 FragCube::FragCube()
 {
 }
