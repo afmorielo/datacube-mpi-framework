@@ -77,7 +77,7 @@ void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std:
 			points.push_back(dim);
 
 			//Atualiza a lista de atributos com o valor dessa point (será usado para buscar nos cuboides)
-			points_attrs.push_back(query[operand]);
+			points_attrs.push_back(query[dim]);
 		}
 
 		//Se o operando for do tipo inquire '?', identificamos a dimensão afetada
@@ -108,10 +108,12 @@ void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std:
 		local_count = tids_intersection.size();
 
 	} else {
-		//Para cada uma das dimensões associadas à consultas point
-		for(auto & dim_number : points){
+
+		//Para cada uma das dimensões associadas à consultas point buscamos nos cuboides
+		//a lista de TIDs associada ao atributo requerido na consulta para essa dimensão
+		for(std::vector<T>::size_type index = 0; index != points.size(); index++) {
 			//Busca os TIDs da estrutura de índice invertido mantida em memória
-			lists_of_tids.push_back(cuboids[{ dim_number }][{ points_attrs[dim_number] }]);
+			lists_of_tids.push_back(cuboids[{ points[index] }][{ points_attrs[index] }]);
 		}
 
 		//Faz a interseção das listas de TIDS encontradas
@@ -137,6 +139,151 @@ void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std:
 		}
 	} else { //Consulta tem pelo menos um operador inquire
 
+		//Para cada uma das dimensões associadas à consultas inquire
+		for(auto & dim_number : inquires){
+
+			//Irá guardar os valores de atributo possíveis na dimensão
+			std::set<int> attribs_set;
+
+			//Um valor extra necessário é o de agregação '*' pois não está nos dados e é usado em consulta válida de inquire
+			//E.g: uma dimensão com atributos [1,2] na verdade tem os atributos [-1,1,2], onde -1 indica TODOS
+			attribs_set.insert(-1);
+
+			//Para cada par associando um valor de atributo a uma lista de TIDs
+			for (auto& attrib_pair_tids: cuboids[{ dim_number }]) {
+				//Extraia apenas o valor de atributo, o primeiro elemento do pair, e salve na lista de atributos
+				attribs_set.insert(attrib_pair_tids.first[0]);
+			}
+
+			//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
+			std::vector<int> attribs_vector(attribs_set.begin(), attribs_set.end());
+
+			//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
+			lists_of_attribs[dim_number] = attribs_vector;
+
+		}
+
+		//Para cada uma das dimensões associadas à consultas point
+		for(auto & dim_number : points){
+			//Insere o valor de atributo como uma nova lista nas listas de atributos
+			lists_of_attribs[dim_number] = { query[dim_number] };
+		}
+
+		//Para cada uma das dimensões associadas à agregações
+		for(auto & dim_number : aggregations){
+			//Insere o valor de atributo como uma nova lista nas listas de atributos
+			lists_of_attribs[dim_number] = { query[dim_number] };
+		}
+
+		//Agora serão geradas as combinações de consultas associadas ao inquire
+		//https://www.geeksforgeeks.org/combinations-from-n-arrays-picking-one-element-from-each-array/
+
+		//Conta a quantidade de listas de atributos
+		int number_of_lists = lists_of_attribs.size();
+
+		//Guarda posições de índices de cada uma das listas
+		//Essas posições indicam qual o índice da lista está sendo usado para a combinação
+		int* indices = new int[number_of_lists];
+
+		//Inicialmente as combinações são geradas partindo do primeiro índice das listas
+		for (int i = 0; i < number_of_lists; i++){
+			indices[i] = 0;
+		}
+
+		//Quantidade de processos que já terminaram de gerar consultas
+		//Inicialmente é zero pois nenhuma consulta foi gerada/respondida ainda
+		int procs_finished = 0;
+
+		//Armazena uma lista dos indicadores de finalização de cada processo
+		//É útil para os demais processos saberem quando alguém vai enviar uma nova consulta ou não
+		std::vector<int> procs_finished_control(num_procs);
+
+		//Equivalente a um booleano, 0 - FALSE, 1 -TRUE, que indica se o processo atual terminou de gerar consultas
+		int finished = 0;
+
+		//Algumas vezes o processo nem gerou as listas pois a interseção de BIDs foi vazia
+		//Isso significa que a partição que o processo recebeu não ajuda na consulta
+		//Sendo assim, ele já finalizou e verificar a primeira lista é suficiente pra confirmar isso
+		if(lists_of_attribs.front().empty()){
+			finished = 1;
+		}
+
+		//Só sai desse laço com um "break"
+		while (1) {
+
+			//Soma os indicadores de finalização de todos os processos e salva numa variável com a contagem geral, todos tem uma cópia
+			MPI_Allreduce(&finished, &procs_finished, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+			//Se todos tiverem finalizado, todos terão definido um valor "1" e a soma será igual ao número de processos
+			//Nesse caso pode encerrar a execução
+			if(procs_finished == num_procs)
+				break;
+
+			//Captura os indicadores de finalização de todos os processos e salva na lista geral, que todos tem uma cópia
+			MPI_Allgather(&finished, 1, MPI_INT, procs_finished_control.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+			//Armazena a consulta gerada pelo processo nessa iteração
+			std::vector<int> query(num_dims);
+
+			//Armazena a consulta, dentre aquelas gerados por todos os processos nessa iteração, sendo executada nesse momento
+			std::vector<int> query_running(num_dims);
+
+			//Só faz sentido tentar gerar uma nova consulta se ainda não tiver finalizado
+			if(finished == 0){
+				//Gera a consulta com base na próxima combinaçao de atributos
+				for (int i = 0; i < number_of_lists; i++){
+					query[i] = lists_of_attribs[i][indices[i]];
+				}
+			}
+
+			//Nesse ponto cada processo que poderia gerar uma nova consulta gerou uma nova consulta nessa iteração
+			for(int i = 0; i < num_procs; i++){
+
+				//A cada etapa do laço define um processo como o "mandante"
+				if(my_rank == i){
+					//A consulta que será executada é a consulta gerada por aquele processo
+					query_running = query;
+				}
+
+				//Todos os processos verificam se o "mandante" já está finalizado
+				if(procs_finished_control[i] == 0){
+
+					//A query do "mandante" é enviada para todos os demais processos
+					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
+
+					//Todos os processos executam a query
+					QueryCube(query_running, my_rank, num_dims, output_folder, num_procs);
+				}
+			}
+
+			// Começa do final e volta procurando
+			// a lista com mais elementos a serem
+			// combinados
+			int next = number_of_lists - 1;
+
+			if(finished == 0){
+				while (next >= 0 &&
+					  (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
+					next--;
+
+				// Nenhuma lista encontrada
+				// então não há mais combinações
+				if (next < 0)
+					finished = 1;
+			}
+
+			if(finished == 0){
+				// Se encontrou move-se para o próximo
+				// elemento na lista
+				indices[next]++;
+
+				// Para todas as listas à direita desta
+				// o índice de combinações novamnete retorna
+				// para o primeiro elemento
+				for (int i = next + 1; i < number_of_lists; i++)
+					indices[i] = 0;
+			}
+		}
 
 	}
 }
