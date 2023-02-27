@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <mpi.h>
+#include <nadeau.h>
 
 // Definição de uma tupla como um TID inteiro, uma sequência de valores inteiros para as dimensões
 // e uma sequência de números com ponto flutuante para as medidas.
