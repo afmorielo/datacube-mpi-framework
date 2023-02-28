@@ -324,7 +324,7 @@ void FragCube::ComputeCube(std::string cube_table, int num_dims,
         ///////////////////// ESPECÍFICO DO ALGORITMO FRAGCUBING /////////////////////
 
         //Tamanho de fragmento, ou seja, quantas dimensões serão usadas em cada cuboide
-        std::vector<T>::size_type fragment_size = 2;
+        std::vector<T>::size_type fragment_size = 1;
 
         //Dimensões de um determinado cuboide, se a divisão for exata deve ter sempre o tamanho do fragmento definido
         std::vector<int> fragment_dims;

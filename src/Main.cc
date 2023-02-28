@@ -49,13 +49,6 @@ int main(int argc, char *argv[])
         int reading_rate;	//Taxa de leitura dos dados de disco para memória
         int tbloc; //Tamanho do bloco, só é aplicável para o algoritmo bCubing
 
-        //VARIÁVEIS PARA CONTROLE DO USO DE MEMÓRIA
-        int current_rss; //O uso de memória do processo atual
-        int sum_rss; //A soma do uso de memória entre todos os processos
-        int max_rss; //O maior valor entre todos processos para uso de memória
-        int min_rss; //O menor valor entre todos os processos para uso de memória
-        double avg_rss; //A média de uso de memória entre os processos
-
         //Esse são vectors que guardam o tamanho de partição de cada processo (seja por tuplas ou dimensões)
         //Se na posição 0 temos o valor 10, significa que o processo 0 usa uma partiçãod de tamanho 10.
         //Dependendo da entrada fornecida pelo usuário isso signifca 10 tuplas ou 10 dimensões.
@@ -125,13 +118,7 @@ int main(int argc, char *argv[])
             end_compute = Time::now();
 
             //Obtém o uso de memória do processo para o cubo computado
-            current_rss = getCurrentRSS();
-
-            //Calcula a soma total de uso de memória, mínimo, máximo e média de uso entre os processos
-            MPI_Reduce(&current_rss,&sum_rss,1,MPI_INT,MPI_SUM, 0, MPI_COMM_WORLD);
-            MPI_Reduce(&current_rss,&min_rss,1,MPI_INT,MPI_MIN, 0, MPI_COMM_WORLD);
-            MPI_Reduce(&current_rss,&max_rss,1,MPI_INT,MPI_MAX, 0, MPI_COMM_WORLD);
-            avg_rss = ((double) sum_rss) / ((double) num_procs);
+            std::cout << "(" << my_rank << "): " << "Memory usage (bytes) => " << getPeakRSS() << std::endl;
 
             //O processo principal apresenta dados da computação
             if(my_rank==0){
@@ -140,7 +127,6 @@ int main(int argc, char *argv[])
 
             		//Apresenta um relatório simples de tempo e uso de memória para computação
                     std::cout << "Cube computed in " << std::chrono::duration_cast<std::chrono::milliseconds> (end_compute - begin_compute).count() << "[ms]" << std::endl;
-                    std::cout << "Memory usage (bytes) => " << "Sum: " << sum_rss << " Max: " << max_rss << " Min: " << min_rss << " Avg: " << avg_rss << std::endl;
 
             		//Espaço deixado intencionalmente em branco
                     std::cout << std::endl;
