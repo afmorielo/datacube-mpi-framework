@@ -133,6 +133,7 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 
 					//LÊ O BLOCO DO DISCO
 
+					//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
                     std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
 
 					//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
@@ -212,6 +213,7 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 
 					//LÊ O BLOCO DO DISCO
 
+					//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
                     std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
 
 					//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
@@ -606,12 +608,16 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                                     {
                                     		//SALVA O BLOCO EM DISCO
 
+											//Esse é o diretório onde iremos salvar os dados do bloco recém criado, tanto TIDs quanto medidas
                                     		std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
 
+                                    		//Como o bloco acabou de ser computado, não existe em disco ainda, então criamos o diretório
             								boost::filesystem::create_directory(bloc_directory);
 
+            								//Para organizar melhor temos uma pasta específico para os dados de TIDs do bloco
             								boost::filesystem::create_directory(bloc_directory + "/tids/");
 
+            								//Temos também uma pasta específica para os dados de medidas do bloco
             								boost::filesystem::create_directory(bloc_directory + "/meas/");
 
 
@@ -701,12 +707,16 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                     {
                 		//SALVA O BLOCO EM DISCO
 
+						//Esse é o diretório onde iremos salvar os dados do bloco recém criado, tanto TIDs quanto medidas
                 		std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
 
+                		//Como o bloco acabou de ser computado, não existe em disco ainda, então criamos o diretório
 						boost::filesystem::create_directory(bloc_directory);
 
+						//Para organizar melhor temos uma pasta específico para os dados de TIDs do bloco
 						boost::filesystem::create_directory(bloc_directory + "/tids/");
 
+						//Temos também uma pasta específica para os dados de medidas do bloco
 						boost::filesystem::create_directory(bloc_directory + "/meas/");
 
                 		//Nome do arquivo onde o BID será salvo - diretório do processo, num diretório específico da dimensão
