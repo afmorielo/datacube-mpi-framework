@@ -33,7 +33,7 @@ BlockCube::operator=(const BlockCube&)
 void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs){
 
 	//Cada processo MPI tem um diretório próprio para armazenar dados do cubo
-	std::string process_directory = output_folder + "/" + std::to_string(my_rank);
+	std::string process_directory = output_folder + "/proc" + std::to_string(my_rank);
 
 	//Listas de BIDs associados a valores de atributo da consulta
 	//Cada posição do vector armazena uma lista de BIDs
@@ -133,8 +133,11 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 
 					//LÊ O BLOCO DO DISCO
 
+					//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
+                    std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
+
 					//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
-					std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+					std::string bid_filename = bloc_directory + "/tids/" + std::to_string(bid) + ".bin";
 
 					//Indica que o arquivo de entrada será um stream de dados binários
 					std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
@@ -210,8 +213,11 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 
 					//LÊ O BLOCO DO DISCO
 
+					//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
+                    std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
+
 					//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
-					std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+					std::string bid_filename = bloc_directory + "/tids/" + std::to_string(bid) + ".bin";
 
 					//Indica que o arquivo de entrada será um stream de dados binários
 					std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
@@ -452,7 +458,7 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
         }
 
     	//Cada processo MPI tem um diretório próprio para armazenar dados do cubo
-    	std::string process_directory = output_folder + "/" + std::to_string(my_rank);
+    	std::string process_directory = output_folder + "/proc" + std::to_string(my_rank);
 
         //Se o diretório de saída estiver vazio, significa que foi recém criado (cubo ainda não computado)
         //Nesse caso procede à computação do cubo normalmente
@@ -465,7 +471,7 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
             //Os blocos usados pelo algoritmo bcubing serão salvos nesses diretórios
             for (int dim_number = 0; dim_number < num_dims; dim_number++)
             {
-                    boost::filesystem::create_directory(process_directory + "/" + std::to_string(dim_number));
+                    boost::filesystem::create_directory(process_directory + "/dim" + std::to_string(dim_number));
             }
 
             //Enquanto não ler todas as tuplas dessa partição
@@ -602,8 +608,21 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                                     {
                                     		//SALVA O BLOCO EM DISCO
 
+											//Esse é o diretório onde iremos salvar os dados do bloco recém criado, tanto TIDs quanto medidas
+                                    		std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
+
+                                    		//Como o bloco acabou de ser computado, não existe em disco ainda, então criamos o diretório
+            								boost::filesystem::create_directory(bloc_directory);
+
+            								//Para organizar melhor temos uma pasta específico para os dados de TIDs do bloco
+            								boost::filesystem::create_directory(bloc_directory + "/tids/");
+
+            								//Temos também uma pasta específica para os dados de medidas do bloco
+            								boost::filesystem::create_directory(bloc_directory + "/meas/");
+
+
                                     		//Nome do arquivo onde o BID será salvo - diretório do processo, num diretório específico da dimensão
-                                            std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+                                            std::string bid_filename = bloc_directory + "/tids/" + std::to_string(bid) + ".bin";
 
                                             //Indica que o arquivo de saída será um stream de dados binários
                                             std::ofstream ofb(bid_filename.c_str(), std::ofstream::binary);
@@ -617,7 +636,7 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                                             //SALVA AS MEDIDAS DO BLOCO EM DISCO
 
                                             //Nome do arquivo onde as medidas do BID serão salvas - diretório do processo, num diretório específico da dimensão
-                                            std::string bid_meas_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid) + ".m";
+                                            std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
 
                                             //Indica que o arquivo de saída será um stream de dados binários
                                             std::ofstream ofm(bid_meas_filename.c_str(), std::ofstream::binary);
@@ -688,8 +707,20 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                     {
                 		//SALVA O BLOCO EM DISCO
 
+						//Esse é o diretório onde iremos salvar os dados do bloco recém criado, tanto TIDs quanto medidas
+                		std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
+
+                		//Como o bloco acabou de ser computado, não existe em disco ainda, então criamos o diretório
+						boost::filesystem::create_directory(bloc_directory);
+
+						//Para organizar melhor temos uma pasta específico para os dados de TIDs do bloco
+						boost::filesystem::create_directory(bloc_directory + "/tids/");
+
+						//Temos também uma pasta específica para os dados de medidas do bloco
+						boost::filesystem::create_directory(bloc_directory + "/meas/");
+
                 		//Nome do arquivo onde o BID será salvo - diretório do processo, num diretório específico da dimensão
-                        std::string bid_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid);
+                        std::string bid_filename = bloc_directory + "/tids/" + std::to_string(bid) + ".bin";
 
                         //Indica que o arquivo de saída será um stream de dados binários
                         std::ofstream ofb(bid_filename.c_str(), std::ofstream::binary);
@@ -703,7 +734,7 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
                         //SALVA AS MEDIDAS DO BLOCO EM DISCO
 
                         //Nome do arquivo onde as medidas do BID serão salvas - diretório do processo, num diretório específico da dimensão
-                        std::string bid_meas_filename = process_directory + "/" + std::to_string(dim_number) + "/" + std::to_string(bid) + ".m";
+                        std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
 
                         //Indica que o arquivo de saída será um stream de dados binários
                         std::ofstream ofm(bid_meas_filename.c_str(), std::ofstream::binary);
