@@ -243,6 +243,14 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                 //Lista de consultas do usuário ao cubo de dados
                 std::vector<std::string> user_queries;
 
+                //Lista de operações do usuário para executar em medidas cubo de dados
+                std::vector<std::string> user_queries_ops;
+
+                //Lista de operações conhecidas, aceitas como entradas válidas
+                std::vector<std::string> known_ops { "soma", "Sm", "max", "Ma", "min",
+                                "Mn", "média", "Me", "variância", "Va", "desvio padrão", "Dp",
+                                "mediana", "Md", "moda", "Mo", "no-op", "No" };
+
                 //Lista de opções do programa
                 po::options_description generic("Opções gerais do programa");
 
@@ -261,6 +269,10 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                                 po::value<std::vector<std::string>>(
                                                 &user_queries)->multitoken(),
                                 "lista de consultas em formato string, entre aspas, separadas por espaço")(
+                                "query-ops",
+                                po::value<std::vector<std::string>>(
+                                                                &user_queries_ops)->multitoken(),
+                                "lista de operações (soma Sm, max Ma, min Mn, média Me, variância Va, desvio padrão Dp, mediana Md, moda Mo ou no-op No), uma por medida, em formato string, entre aspas, separadas por espaço")(
                                 "algorithm,alg",
                                 po::value<std::string>(&user_algorithm)->default_value(
                                                 "bcubing"),
@@ -482,6 +494,51 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                                         << "ERRO: por favor garanta que todas as consultas são válidas antes de tentar novamente."
                                         << std::endl;
                         return false;
+                }
+
+                //Não é obrigatório, mas o usuário pode fornecer uma lista de operações para cada medida (frequência é sempre calculado)
+                if (vm.count("query-ops")) {
+
+                        //Se passar mais listas de operações do que consultas, significa que pelo menos uma lista de operações é desnecessária
+                        if (user_queries_ops.size() > user_queries.size()) {
+                                std::cout
+                                                << "ERRO: você passou mais listas de operações do que consultas a serem executadas."
+                                                << std::endl;
+                                return false;
+                        }
+
+                        //Agora vamos verificar cada lista de operações fornecida
+                        for (auto &operations : user_queries_ops) {
+
+                                //Será usado para contar quantos operadores foram fornecidos
+                                int num_args = 0;
+
+                                //Armazena um dos operadores fornecidos
+                                std::string arg;
+
+                                //A lista de operações, em formato de string
+                                std::stringstream ops(operations);
+
+                                //Passa por cada argumento da lista de operações, separado por espaços
+                                while (ops >> arg) {
+                                        //Apenas alguns operadores são aceitos, se passar algum errado deve encerrar a execução
+                                        if (std::find(std::begin(known_ops), std::end(known_ops), arg) == std::end(known_ops)) {
+                                                std::cout
+                                                                << "ERRO: o operador " << arg << " na lista de operações \"" << operations << "\" não é válido."
+                                                                << std::endl;
+                                                return false;
+                                        }
+                                        num_args++;
+                                }
+
+                                //Se chegou aqui é porque todos os operadores são válidos, mas talvez tenha passado operadores demais/menos
+                                if(num_args != num_meas){
+                                        std::cout
+                                                        << "ERRO: o número de operadores na lista de operações \"" << operations << "\" é diferente do número de medidas existentes."
+                                                        << std::endl;
+                                        return false;
+                                }
+                        }
                 }
 
                 //Tenta obter o tamanho da partição dos dados pelo número de processos em execução
