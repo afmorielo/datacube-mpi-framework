@@ -220,7 +220,7 @@ bool GetPartitionSize(int num_tuples, int num_dims, int num_procs, int my_rank,
 bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                 int num_procs, int &num_dims, int &num_meas, int &num_tuples,
                 int &tuple_partition_size, int &dim_partition_size, int &reading_rate, int &tbloc, std::string &output_folder,
-                std::vector<std::vector<int>> &queries,
+                std::vector<std::vector<int>> &queries, std::vector<std::string> &queries_ops,
                 std::string &cube_algorithm, std::string &cube_table, bool &on_demand)
 {
         try
@@ -538,7 +538,17 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                                                         << std::endl;
                                         return false;
                                 }
+
+                                //Agora que essa lista de operações foi validada, adicionamos à variável principal
+                                queries_ops.push_back(operations);
                         }
+
+                }
+
+                //Indicando que as queries restantes não terão uma lista de operações a ser executado
+                //Para os casos em que passar menos listas de operações do que queries
+                while(queries_ops.size() < queries.size()){
+                	queries_ops.push_back("");
                 }
 
                 //Tenta obter o tamanho da partição dos dados pelo número de processos em execução

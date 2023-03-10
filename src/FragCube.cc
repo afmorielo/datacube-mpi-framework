@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <chrono>
+#include <sstream>
 
 FragCube::FragCube()
 {
@@ -23,11 +24,14 @@ FragCube::operator=(const FragCube&)
         return *this;
 }
 
-void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my_rank, int num_dims, std::string output_folder, int num_procs){
 
 	//Listas de TIDs fazem parte da resposta da consulta
 	//Cada posição do vector armazena uma lista de TIDs
 	std::vector<std::vector<int>> lists_of_tids;
+
+	//Lista final com a interseção de todos os TIDs que respondem à consulta
+	std::vector<int> tids_intersection;
 
 	//No caso do inquire irá armazenar listas de valores de atributo
 	//Essas listas serão usadas para gerar as consultas pontuais derivadas do inquire
@@ -90,7 +94,7 @@ void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std:
 	//Mas aqui tentamos o cuboide de mais alto nível e depois partimos direto pro mais baixo nível
 	if(cuboids.count(points) != 0){
 		//Busca a lista de TIDs que já foi pré-calculada
-		std::vector<int> tids_intersection = cuboids[points][points_attrs];
+		tids_intersection = cuboids[points][points_attrs];
 
 		//Atualiza o valor de COUNT localmente para a consulta
 		local_count = tids_intersection.size();
@@ -105,7 +109,7 @@ void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std:
 		}
 
 		//Faz a interseção das listas de TIDS encontradas
-		std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
+		tids_intersection = IntersectMultipleVectors(lists_of_tids);
 
 		//Atualiza o valor de COUNT localmente para a consulta
 		local_count = tids_intersection.size();
@@ -113,18 +117,82 @@ void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std:
 
 	//Se não tiver nenhuma consulta inquire, deve ter apenas points
 	if(inquires.empty()){
+
 		//Somente será executado quando todos processos chegarem nesse ponto
 		//Combina as respostas de todos num só processo
 		MPI_Reduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
+		//Apresenta inicialmente a contagem de tuplas
 		if(my_rank == 0){
 			if(global_count > 0){
 				for(auto & operand : query) {
 					(operand == -1) ? std::cout << '*' << ' ' : std::cout << operand << ' ';
 				}
-				std::cout << ": " << global_count << std::endl;
+				std::cout << ": " << global_count << ' ';
 			}
 		}
+
+		//Agora já fizemos a contagem, que é o padrão, mas podem ter mais operações de agregação
+		if(!queries_ops.empty()){
+
+	        //Armazena um dos operadores fornecidos
+	        std::string arg;
+
+	        //Guarda um identificador da medida associada, a primeira medida é M0
+	        int measure_id = 0;
+
+	        //A lista de operações, em formato de string
+	        std::stringstream ops(queries_ops);
+
+	        //Passa por cada argumento da lista de operações, separado por espaços
+	        while (ops >> arg) {
+
+	        	//Operação de agração do tipo SOMA
+	        	if(arg == "Sm" || arg == "soma"){
+
+	        		//A soma local a princípio é zero
+	        		float local_sum = 0;
+
+	        		//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
+	        		float global_sum = 0;
+
+	        		//Caso a consulta tenha resultado em alguns tids
+	        		if(local_count > 0){
+
+	        			//Soma localmente os valores com base nos TIDs da resposta
+						for(auto & tid : tids_intersection){
+							local_sum += imeas[tid][measure_id];
+						}
+
+	        		}
+
+	        		//Somente será executado quando todos processos chegarem nesse ponto
+	        		//Combina as respostas de todos num só processo
+	        		MPI_Reduce(&local_sum, &global_sum, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+	        		//Apresenta o valor agregado de SOMA das medidas
+	        		if(my_rank == 0){
+	        			if(global_count > 0){
+	        				std::cout << "Sm(M" << measure_id << ") = " << global_sum << ' ';
+	        			}
+	        		}
+
+	        	}
+
+	        	//O próximo operador será associado à próxima medida
+	        	measure_id++;
+
+	        }
+		}
+
+		//Final de linha, apenas para organizar as respostas
+		if(my_rank == 0){
+			if(global_count > 0){
+				//Oficialmente terminamos de responder a consulta!
+				std::cout << std::endl;
+			}
+		}
+
 	} else { //Consulta tem pelo menos um operador inquire
 
 		//Para cada uma das dimensões associadas à consultas inquire
@@ -240,7 +308,7 @@ void FragCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std:
 					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
 
 					//Todos os processos executam a query
-					QueryCube(query_running, my_rank, num_dims, output_folder, num_procs);
+					QueryCube(query_running, queries_ops, my_rank, num_dims, output_folder, num_procs);
 				}
 			}
 

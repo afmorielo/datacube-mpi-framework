@@ -30,7 +30,7 @@ BlockCube::operator=(const BlockCube&)
         return *this;
 }
 
-void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int my_rank, int num_dims, std::string output_folder, int num_procs){
 
 	//Cada processo MPI tem um diretório próprio para armazenar dados do cubo
 	std::string process_directory = output_folder + "/proc" + std::to_string(my_rank);
@@ -334,7 +334,7 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
 
 					//Todos os processos executam a query
-					QueryCube(query_running, my_rank, num_dims, output_folder, num_procs);
+					QueryCube(query_running, queries_ops, my_rank, num_dims, output_folder, num_procs);
 				}
 			}
 
