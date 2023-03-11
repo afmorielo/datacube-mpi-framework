@@ -22,6 +22,7 @@ private:
         std::vector<std::vector<std::unordered_map<int, std::vector<int>>>> bbloc;
         std::vector<std::unordered_map<int, std::set<int>>> bblocRAM;
         std::vector<std::unordered_map<int, std::vector<float>>> bmeas;
+        int tbloc; //Tamanho de bloco
 };
 
 #endif // BlockCube_h

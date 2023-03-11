@@ -43,6 +43,9 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 	//Cada posição do vector armazena uma lista de TIDs
 	std::vector<std::vector<int>> lists_of_tids;
 
+	//Lista final com a interseção de todos os TIDs que respondem à consulta
+	std::vector<int> tids_intersection;
+
 	//No caso do inquire irá armazenar listas de valores de atributo
 	//Essas listas serão usadas para gerar as consultas pontuais derivadas do inquire
 	std::vector<std::vector<int>> lists_of_attribs(num_dims);
@@ -153,6 +156,21 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 
 					//Adiciona às listas de TID os TIDs da dimensão associada à point, para esse BID, com base no valor da consulta
 					tids.insert(std::end(tids), std::begin(tids_bbloc), std::end(tids_bbloc));
+
+                    //LÊ AS MEDIDAS DO BLOCO EM DISCO
+
+                    //Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
+                    std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
+
+                    //Indica que o arquivo de entrada será um stream de dados binários
+                    std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
+
+                    //Serialização é feita pela biblioteca Boost
+                    boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
+
+                    //Carrega os dados de medidas do BID que estavam em disco
+                    im & bmeas[bid];
+
 				}
 
 				//Vai armazenar uma quantidade de listas igual à quantidade de consultas do tipo point
@@ -161,7 +179,7 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 			}
 
 			//Faz a interseção das listas de TIDS encontradas
-			std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
+			tids_intersection = IntersectMultipleVectors(lists_of_tids);
 
 			//Atualiza o valor de COUNT localmente para a consulta
 			local_count = tids_intersection.size();
@@ -176,9 +194,83 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 				for(auto & operand : query) {
 					(operand == -1) ? std::cout << '*' << ' ' : std::cout << operand << ' ';
 				}
-				std::cout << ": " << global_count << std::endl;
+				std::cout << ": " << global_count << ' ';
 			}
 		}
+
+		//Agora já fizemos a contagem, que é o padrão, mas podem ter mais operações de agregação
+		if(!queries_ops.empty()){
+
+	        //Armazena um dos operadores fornecidos
+	        std::string arg;
+
+	        //Guarda um identificador da medida associada, a primeira medida é M0
+	        int measure_id = 0;
+
+	        //A lista de operações, em formato de string
+	        std::stringstream ops(queries_ops);
+
+	        //Passa por cada argumento da lista de operações, separado por espaços
+	        while (ops >> arg) {
+
+	        	//Operação de agração do tipo SOMA
+	        	if(arg == "Sm" || arg == "soma"){
+
+	        		//A soma local a princípio é zero
+	        		float local_sum = 0;
+
+	        		//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
+	        		float global_sum = 0;
+
+	        		//Caso a consulta tenha resultado em alguns tids
+	        		if(local_count > 0){
+
+	        			//Soma localmente os valores com base nos TIDs da resposta
+						for(auto & tid : tids_intersection){
+
+							int bid;
+
+							//Soma de tuplas até o começo da partição associada a esse processo
+							int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
+
+							if(my_rank > 0){
+								bid = (tid % (sum_of_partitions + 1) + 1)/tbloc + ((tid % (sum_of_partitions + 1) + 1) % tbloc != 0) - 1;
+							} else {
+								bid = tid/tbloc + (tid % tbloc != 0) - 1;
+							}
+
+							local_sum += bmeas[bid][tid][measure_id];
+						}
+
+	        		}
+
+	        		//Somente será executado quando todos processos chegarem nesse ponto
+	        		//Combina as respostas de todos num só processo
+	        		MPI_Reduce(&local_sum, &global_sum, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+	        		//Apresenta o valor agregado de SOMA das medidas
+	        		if(my_rank == 0){
+	        			if(global_count > 0){
+	        				std::cout << "Sm(M" << measure_id << ") = " << global_sum << ' ';
+	        			}
+	        		}
+
+	        	}
+
+	        	//O próximo operador será associado à próxima medida
+	        	measure_id++;
+
+	        }
+		}
+
+		//Final de linha, apenas para organizar as respostas
+		if(my_rank == 0){
+			if(global_count > 0){
+				//Oficialmente terminamos de responder a consulta!
+				std::cout << std::endl;
+			}
+		}
+
 	} else { //Consulta tem pelo menos um operador inquire
 
 		//Só faz sentido tentar responder a consulta se a interseção não for fazia
@@ -233,6 +325,21 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 						//Extraia apenas o valor de atributo, o primeiro elemento do pair, e salve na lista de atributos
 						attribs_set.insert(attrib_pair_tids.first);
 					}
+
+                    //LÊ AS MEDIDAS DO BLOCO EM DISCO
+
+                    //Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
+                    std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
+
+                    //Indica que o arquivo de entrada será um stream de dados binários
+                    std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
+
+                    //Serialização é feita pela biblioteca Boost
+                    boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
+
+                    //Carrega os dados de medidas do BID que estavam em disco
+                    im & bmeas[bid];
+
 				}
 
 				//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
@@ -441,6 +548,9 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
         //Sabendo o tamanho da partição e o tamanho de bloco conseguiremos saber quantos blocos serão criados
         int num_bids = (tuple_partition_size % tbloc == 0) ? tuple_partition_size / tbloc : tuple_partition_size / tbloc + 1;
+
+        //Salva o tamanho do bloco numa variável privada do objeto da classe cubo
+        this->tbloc = tbloc;
 
         //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura bCubingBloc
         bbloc.resize(num_dims);

@@ -111,6 +111,10 @@ int main(int argc, char *argv[])
                 	cube = std::make_unique<FragCube>(FragCube());
             }
 
+            cube->tuple_partition_listings = tuple_partition_listings;
+
+            cube->dim_partition_listings = dim_partition_listings;
+
     		//Tempo de início da computação
             begin_compute = Time::now();
 

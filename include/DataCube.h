@@ -36,6 +36,8 @@ public:
         virtual std::vector<int> IntersectMultipleVectors(std::vector<std::vector<int>> &sorted_vectors);
         virtual int IntegerPow(int base, int exp);
         std::vector<TupleType> read_buffer;
+        std::vector<int> tuple_partition_listings;
+        std::vector<int> dim_partition_listings;
 protected:
 private:
 };
