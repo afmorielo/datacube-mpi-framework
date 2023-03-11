@@ -179,6 +179,53 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my
 
 	        	}
 
+	        	//Operação de agregação do tipo MEDIANA
+	        	if(arg == "Md" || arg == "mediana"){
+
+	        		//Como é uma operação holística deve apenas extrair as medidas inicialmente
+	        		std::vector<float> local_measures;
+
+	        		//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
+	        		std::vector<float> global_measures(global_count);
+
+	        		std::vector<int> recvcounts(num_procs);
+
+	        		std::vector<int> displs(num_procs);
+
+	        		//Caso a consulta tenha resultado em alguns tids
+	        		if(local_count > 0){
+
+	        			//Soma localmente os valores com base nos TIDs da resposta
+						for(auto & tid : tids_intersection){
+							local_measures.push_back(imeas[tid][measure_id]);
+						}
+
+	        		}
+
+	                MPI_Allgather(&local_count, 1, MPI_INT, recvcounts.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+	                int displacement = std::accumulate(recvcounts.begin(), recvcounts.begin() + my_rank, 0);
+
+	                MPI_Allgather(&displacement, 1, MPI_INT, displs.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+	        		MPI_Gatherv(local_measures.data(), local_measures.size(), MPI_FLOAT,
+	        				global_measures.data(), recvcounts.data(), displs.data(), MPI_FLOAT,
+	        		    0, MPI_COMM_WORLD);
+
+	        		//Apresenta o valor agregado de SOMA das medidas
+	        		if(my_rank == 0){
+	        			if(global_count > 0){
+
+	        			    size_t n = global_measures.size() / 2;
+
+	        			    std::nth_element(global_measures.begin(), global_measures.begin()+n, global_measures.end());
+
+	        				std::cout << "Md(M" << measure_id << ") = " << global_measures[n] << ' ';
+	        			}
+	        		}
+
+	        	}
+
 	        	//O próximo operador será associado à próxima medida
 	        	measure_id++;
 
