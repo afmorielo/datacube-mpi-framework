@@ -161,7 +161,10 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my
 
 	        			//Soma localmente os valores com base nos TIDs da resposta
 						for(auto & tid : tids_intersection){
+
+							//Acessa o índice em memória para obter o valor de medida e faz a SOMA
 							local_sum += imeas[tid][measure_id];
+
 						}
 
 	        		}
@@ -188,8 +191,10 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my
 	        		//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
 	        		std::vector<float> global_measures(global_count);
 
+	        		//Lista de quantidades de resultados obtidos por cada processo para a consulta
 	        		std::vector<int> recvcounts(num_procs);
 
+	        		//Lista de deslocamentos necessários para organizar todos os resultados numa única lista global
 	        		std::vector<int> displs(num_procs);
 
 	        		//Caso a consulta tenha resultado em alguns tids
@@ -197,29 +202,42 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my
 
 	        			//Soma localmente os valores com base nos TIDs da resposta
 						for(auto & tid : tids_intersection){
+
+							//Obtém a lista de medidas localmente
 							local_measures.push_back(imeas[tid][measure_id]);
+
 						}
 
 	        		}
 
+	        		//Compartilha com os demais processos quantos resultados obteve localmente
 	                MPI_Allgather(&local_count, 1, MPI_INT, recvcounts.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
+	                //Com base na quantidade de resultados dos demais, o processo consegue saber o deslocamento necessário
+	                //para armazenar os seus próprios resultados na lista que o  processo principal irá gerar com todos os resultados
+	                //Ex: processo 0 tem 3 resultados, se eu sou o processo 1 meus resultados na lista final deve começar a partir do 3
 	                int displacement = std::accumulate(recvcounts.begin(), recvcounts.begin() + my_rank, 0);
 
+	                //Compartilha com os demais processos os deslocamentos
 	                MPI_Allgather(&displacement, 1, MPI_INT, displs.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
+	                //O processo principal de rank 0 coleta as medidas dos demais considerando os deslocamentos necessários
+	                //Os resultados são salvos em uma lista global de medidas com as medidas obtidas por todos os processos
 	        		MPI_Gatherv(local_measures.data(), local_measures.size(), MPI_FLOAT,
 	        				global_measures.data(), recvcounts.data(), displs.data(), MPI_FLOAT,
 	        		    0, MPI_COMM_WORLD);
 
-	        		//Apresenta o valor agregado de SOMA das medidas
+	        		//Apresenta o valor agregado de MEDIANA das medidas
 	        		if(my_rank == 0){
 	        			if(global_count > 0){
 
+	        				//Usamos a estratégia de ordenar apenas o suficiente a lista de medidas
 	        			    size_t n = global_measures.size() / 2;
 
+	        			    //Para obter a mediana é preciso que a lista esteja ordenada, nesse caso apenas o suficiente
 	        			    std::nth_element(global_measures.begin(), global_measures.begin()+n, global_measures.end());
 
+	        			    //Obtemos o valor mediano, após a ordenação
 	        				std::cout << "Md(M" << measure_id << ") = " << global_measures[n] << ' ';
 	        			}
 	        		}

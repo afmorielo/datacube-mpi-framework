@@ -35,9 +35,9 @@ public:
         virtual std::vector<int> IntersectTwoVectors(std::vector<int> const& vector_a, std::vector<int> const& vector_b);
         virtual std::vector<int> IntersectMultipleVectors(std::vector<std::vector<int>> &sorted_vectors);
         virtual int IntegerPow(int base, int exp);
-        std::vector<TupleType> read_buffer;
-        std::vector<int> tuple_partition_listings;
-        std::vector<int> dim_partition_listings;
+        std::vector<TupleType> read_buffer; //Buffer usado para leitura de tuplas que irão compor o cubo
+        std::vector<int> tuple_partition_listings; //Guarda os tamanhos de partições entre N >= 1 divisões por tuplas da tabela de entrada
+        std::vector<int> dim_partition_listings; //Guarda os tamanhos de partições entre N >= 1 divisões por dimensões da tabela de entrada
 protected:
 private:
 };

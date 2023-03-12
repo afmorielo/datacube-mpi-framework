@@ -228,17 +228,29 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 	        			//Soma localmente os valores com base nos TIDs da resposta
 						for(auto & tid : tids_intersection){
 
+							//No caso do bCubing as medidas são indexadas pelo BID
 							int bid;
 
 							//Soma de tuplas até o começo da partição associada a esse processo
 							int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
 
+							//Aqui fazemos o cálculo para saber qual o BID o TID que queremos está
 							if(my_rank > 0){
+								//Se não for o processo de menor rank, precisamos determinar em que ponto o TID está na partição do processo
+								//Por exemplo, se a partição do processo começa no TID 4, então o TID 4 para ele é equivalente ao TID 1 do primeiro processo
+								//Ambos os TIDs estariam no primeiro bloco de cada processo
+								//Ex: se TID 4 então 4 % ( 3 + 1 ) + 1 = 4 % (4) + 1 = 0 + 1 = 1
+								//Ou seja, os processos anteriores foram até o TID 3 e nesse processo a partição começa no TID 4 que para ele é o primeiro TID
+								//Ex: tbloc = 2 e tid = 1 então bid = 1/2 + 1%2 - 1 = 0 + 1 - 1 = 0, está no BID 0
 								bid = (tid % (sum_of_partitions + 1) + 1)/tbloc + ((tid % (sum_of_partitions + 1) + 1) % tbloc != 0) - 1;
 							} else {
+								//Se for o processo de menor rank, então ele pegou a primeira partição
+								//Nesse caso dá pra saber o BID dividindo o valor dele pelo tamanho do bloco e arrendondando pra cima
+								//Ex: tbloc = 2 e tid = 3 então bid = 3/2 + 3%2 - 1 = 1 + 1 - 1 = 1, está no BID 1
 								bid = tid/tbloc + (tid % tbloc != 0) - 1;
 							}
 
+							//Acessa o índice em memória para obter o valor de medida e faz a SOMA
 							local_sum += bmeas[bid][tid][measure_id];
 						}
 
@@ -252,6 +264,89 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 	        		if(my_rank == 0){
 	        			if(global_count > 0){
 	        				std::cout << "Sm(M" << measure_id << ") = " << global_sum << ' ';
+	        			}
+	        		}
+
+	        	}
+
+	        	//Operação de agregação do tipo MEDIANA
+	        	if(arg == "Md" || arg == "mediana"){
+
+	        		//Como é uma operação holística deve apenas extrair as medidas inicialmente
+	        		std::vector<float> local_measures;
+
+	        		//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
+	        		std::vector<float> global_measures(global_count);
+
+	        		//Lista de quantidades de resultados obtidos por cada processo para a consulta
+	        		std::vector<int> recvcounts(num_procs);
+
+	        		//Lista de deslocamentos necessários para organizar todos os resultados numa única lista global
+	        		std::vector<int> displs(num_procs);
+
+	        		//Caso a consulta tenha resultado em alguns tids
+	        		if(local_count > 0){
+
+	        			//Soma localmente os valores com base nos TIDs da resposta
+						for(auto & tid : tids_intersection){
+
+							//No caso do bCubing as medidas são indexadas pelo BID
+							int bid;
+
+							//Soma de tuplas até o começo da partição associada a esse processo
+							int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
+
+							//Aqui fazemos o cálculo para saber qual o BID o TID que queremos está
+							if(my_rank > 0){
+								//Se não for o processo de menor rank, precisamos determinar em que ponto o TID está na partição do processo
+								//Por exemplo, se a partição do processo começa no TID 4, então o TID 4 para ele é equivalente ao TID 1 do primeiro processo
+								//Ambos os TIDs estariam no primeiro bloco de cada processo
+								//Ex: se TID 4 então 4 % ( 3 + 1 ) + 1 = 4 % (4) + 1 = 0 + 1 = 1
+								//Ou seja, os processos anteriores foram até o TID 3 e nesse processo a partição começa no TID 4 que para ele é o primeiro TID
+								//Ex: tbloc = 2 e tid = 1 então bid = 1/2 + 1%2 - 1 = 0 + 1 - 1 = 0, está no BID 0
+								bid = (tid % (sum_of_partitions + 1) + 1)/tbloc + ((tid % (sum_of_partitions + 1) + 1) % tbloc != 0) - 1;
+							} else {
+								//Se for o processo de menor rank, então ele pegou a primeira partição
+								//Nesse caso dá pra saber o BID dividindo o valor dele pelo tamanho do bloco e arrendondando pra cima
+								//Ex: tbloc = 2 e tid = 3 então bid = 3/2 + 3%2 - 1 = 1 + 1 - 1 = 1, está no BID 1
+								bid = tid/tbloc + (tid % tbloc != 0) - 1;
+							}
+
+							//Obtém a lista de medidas localmente
+							local_measures.push_back(bmeas[bid][tid][measure_id]);
+						}
+
+	        		}
+
+	        		//Compartilha com os demais processos quantos resultados obteve localmente
+	                MPI_Allgather(&local_count, 1, MPI_INT, recvcounts.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+	                //Com base na quantidade de resultados dos demais, o processo consegue saber o deslocamento necessário
+	                //para armazenar os seus próprios resultados na lista que o  processo principal irá gerar com todos os resultados
+	                //Ex: processo 0 tem 3 resultados, se eu sou o processo 1 meus resultados na lista final deve começar a partir do 3
+	                int displacement = std::accumulate(recvcounts.begin(), recvcounts.begin() + my_rank, 0);
+
+	                //Compartilha com os demais processos os deslocamentos
+	                MPI_Allgather(&displacement, 1, MPI_INT, displs.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+	                //O processo principal de rank 0 coleta as medidas dos demais considerando os deslocamentos necessários
+	                //Os resultados são salvos em uma lista global de medidas com as medidas obtidas por todos os processos
+	        		MPI_Gatherv(local_measures.data(), local_measures.size(), MPI_FLOAT,
+	        				global_measures.data(), recvcounts.data(), displs.data(), MPI_FLOAT,
+	        		    0, MPI_COMM_WORLD);
+
+	        		//Apresenta o valor agregado de MEDIANA das medidas
+	        		if(my_rank == 0){
+	        			if(global_count > 0){
+
+	        				//Usamos a estratégia de ordenar apenas o suficiente a lista de medidas
+	        			    size_t n = global_measures.size() / 2;
+
+	        			    //Para obter a mediana é preciso que a lista esteja ordenada, nesse caso apenas o suficiente
+	        			    std::nth_element(global_measures.begin(), global_measures.begin()+n, global_measures.end());
+
+	        			    //Obtemos o valor mediano, após a ordenação
+	        				std::cout << "Md(M" << measure_id << ") = " << global_measures[n] << ' ';
 	        			}
 	        		}
 
