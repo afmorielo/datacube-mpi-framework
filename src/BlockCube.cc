@@ -30,7 +30,7 @@ BlockCube::operator=(const BlockCube&)
         return *this;
 }
 
-void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int my_rank, int num_dims, std::string output_folder, int num_procs){
 
 	//Cada processo MPI tem um diretório próprio para armazenar dados do cubo
 	std::string process_directory = output_folder + "/proc" + std::to_string(my_rank);
@@ -42,6 +42,9 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 	//Listas de TIDs fazem parte da resposta da consulta
 	//Cada posição do vector armazena uma lista de TIDs
 	std::vector<std::vector<int>> lists_of_tids;
+
+	//Lista final com a interseção de todos os TIDs que respondem à consulta
+	std::vector<int> tids_intersection;
 
 	//No caso do inquire irá armazenar listas de valores de atributo
 	//Essas listas serão usadas para gerar as consultas pontuais derivadas do inquire
@@ -153,6 +156,21 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 
 					//Adiciona às listas de TID os TIDs da dimensão associada à point, para esse BID, com base no valor da consulta
 					tids.insert(std::end(tids), std::begin(tids_bbloc), std::end(tids_bbloc));
+
+                    //LÊ AS MEDIDAS DO BLOCO EM DISCO
+
+                    //Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
+                    std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
+
+                    //Indica que o arquivo de entrada será um stream de dados binários
+                    std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
+
+                    //Serialização é feita pela biblioteca Boost
+                    boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
+
+                    //Carrega os dados de medidas do BID que estavam em disco
+                    im & bmeas[bid];
+
 				}
 
 				//Vai armazenar uma quantidade de listas igual à quantidade de consultas do tipo point
@@ -161,7 +179,7 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 			}
 
 			//Faz a interseção das listas de TIDS encontradas
-			std::vector<int> tids_intersection = IntersectMultipleVectors(lists_of_tids);
+			tids_intersection = IntersectMultipleVectors(lists_of_tids);
 
 			//Atualiza o valor de COUNT localmente para a consulta
 			local_count = tids_intersection.size();
@@ -176,9 +194,178 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 				for(auto & operand : query) {
 					(operand == -1) ? std::cout << '*' << ' ' : std::cout << operand << ' ';
 				}
-				std::cout << ": " << global_count << std::endl;
+				std::cout << ": " << global_count << ' ';
 			}
 		}
+
+		//Agora já fizemos a contagem, que é o padrão, mas podem ter mais operações de agregação
+		if(!queries_ops.empty()){
+
+	        //Armazena um dos operadores fornecidos
+	        std::string arg;
+
+	        //Guarda um identificador da medida associada, a primeira medida é M0
+	        int measure_id = 0;
+
+	        //A lista de operações, em formato de string
+	        std::stringstream ops(queries_ops);
+
+	        //Passa por cada argumento da lista de operações, separado por espaços
+	        while (ops >> arg) {
+
+	        	//Operação de agração do tipo SOMA
+	        	if(arg == "Sm" || arg == "soma"){
+
+	        		//A soma local a princípio é zero
+	        		float local_sum = 0;
+
+	        		//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
+	        		float global_sum = 0;
+
+	        		//Caso a consulta tenha resultado em alguns tids
+	        		if(local_count > 0){
+
+	        			//Soma localmente os valores com base nos TIDs da resposta
+						for(auto & tid : tids_intersection){
+
+							//No caso do bCubing as medidas são indexadas pelo BID
+							int bid;
+
+							//Soma de tuplas até o começo da partição associada a esse processo
+							int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
+
+							//Aqui fazemos o cálculo para saber qual o BID o TID que queremos está
+							if(my_rank > 0){
+								//Se não for o processo de menor rank, precisamos determinar em que ponto o TID está na partição do processo
+								//Por exemplo, se a partição do processo começa no TID 4, então o TID 4 para ele é equivalente ao TID 1 do primeiro processo
+								//Ambos os TIDs estariam no primeiro bloco de cada processo
+								//Ex: se TID 4 então 4 % ( 3 + 1 ) + 1 = 4 % (4) + 1 = 0 + 1 = 1
+								//Ou seja, os processos anteriores foram até o TID 3 e nesse processo a partição começa no TID 4 que para ele é o primeiro TID
+								//Ex: tbloc = 2 e tid = 1 então bid = 1/2 + 1%2 - 1 = 0 + 1 - 1 = 0, está no BID 0
+								bid = (tid % (sum_of_partitions + 1) + 1)/tbloc + ((tid % (sum_of_partitions + 1) + 1) % tbloc != 0) - 1;
+							} else {
+								//Se for o processo de menor rank, então ele pegou a primeira partição
+								//Nesse caso dá pra saber o BID dividindo o valor dele pelo tamanho do bloco e arrendondando pra cima
+								//Ex: tbloc = 2 e tid = 3 então bid = 3/2 + 3%2 - 1 = 1 + 1 - 1 = 1, está no BID 1
+								bid = tid/tbloc + (tid % tbloc != 0) - 1;
+							}
+
+							//Acessa o índice em memória para obter o valor de medida e faz a SOMA
+							local_sum += bmeas[bid][tid][measure_id];
+						}
+
+	        		}
+
+	        		//Somente será executado quando todos processos chegarem nesse ponto
+	        		//Combina as respostas de todos num só processo
+	        		MPI_Reduce(&local_sum, &global_sum, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+	        		//Apresenta o valor agregado de SOMA das medidas
+	        		if(my_rank == 0){
+	        			if(global_count > 0){
+	        				std::cout << "Sm(M" << measure_id << ") = " << global_sum << ' ';
+	        			}
+	        		}
+
+	        	}
+
+	        	//Operação de agregação do tipo MEDIANA
+	        	if(arg == "Md" || arg == "mediana"){
+
+	        		//Como é uma operação holística deve apenas extrair as medidas inicialmente
+	        		std::vector<float> local_measures;
+
+	        		//Essa variável só deve ser usada pelo processo de menor rank para guardar o resultado final
+	        		std::vector<float> global_measures(global_count);
+
+	        		//Lista de quantidades de resultados obtidos por cada processo para a consulta
+	        		std::vector<int> recvcounts(num_procs);
+
+	        		//Lista de deslocamentos necessários para organizar todos os resultados numa única lista global
+	        		std::vector<int> displs(num_procs);
+
+	        		//Caso a consulta tenha resultado em alguns tids
+	        		if(local_count > 0){
+
+	        			//Soma localmente os valores com base nos TIDs da resposta
+						for(auto & tid : tids_intersection){
+
+							//No caso do bCubing as medidas são indexadas pelo BID
+							int bid;
+
+							//Soma de tuplas até o começo da partição associada a esse processo
+							int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
+
+							//Aqui fazemos o cálculo para saber qual o BID o TID que queremos está
+							if(my_rank > 0){
+								//Se não for o processo de menor rank, precisamos determinar em que ponto o TID está na partição do processo
+								//Por exemplo, se a partição do processo começa no TID 4, então o TID 4 para ele é equivalente ao TID 1 do primeiro processo
+								//Ambos os TIDs estariam no primeiro bloco de cada processo
+								//Ex: se TID 4 então 4 % ( 3 + 1 ) + 1 = 4 % (4) + 1 = 0 + 1 = 1
+								//Ou seja, os processos anteriores foram até o TID 3 e nesse processo a partição começa no TID 4 que para ele é o primeiro TID
+								//Ex: tbloc = 2 e tid = 1 então bid = 1/2 + 1%2 - 1 = 0 + 1 - 1 = 0, está no BID 0
+								bid = (tid % (sum_of_partitions + 1) + 1)/tbloc + ((tid % (sum_of_partitions + 1) + 1) % tbloc != 0) - 1;
+							} else {
+								//Se for o processo de menor rank, então ele pegou a primeira partição
+								//Nesse caso dá pra saber o BID dividindo o valor dele pelo tamanho do bloco e arrendondando pra cima
+								//Ex: tbloc = 2 e tid = 3 então bid = 3/2 + 3%2 - 1 = 1 + 1 - 1 = 1, está no BID 1
+								bid = tid/tbloc + (tid % tbloc != 0) - 1;
+							}
+
+							//Obtém a lista de medidas localmente
+							local_measures.push_back(bmeas[bid][tid][measure_id]);
+						}
+
+	        		}
+
+	        		//Compartilha com os demais processos quantos resultados obteve localmente
+	                MPI_Allgather(&local_count, 1, MPI_INT, recvcounts.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+	                //Com base na quantidade de resultados dos demais, o processo consegue saber o deslocamento necessário
+	                //para armazenar os seus próprios resultados na lista que o  processo principal irá gerar com todos os resultados
+	                //Ex: processo 0 tem 3 resultados, se eu sou o processo 1 meus resultados na lista final deve começar a partir do 3
+	                int displacement = std::accumulate(recvcounts.begin(), recvcounts.begin() + my_rank, 0);
+
+	                //Compartilha com os demais processos os deslocamentos
+	                MPI_Allgather(&displacement, 1, MPI_INT, displs.data(), 1, MPI_INT, MPI_COMM_WORLD);
+
+	                //O processo principal de rank 0 coleta as medidas dos demais considerando os deslocamentos necessários
+	                //Os resultados são salvos em uma lista global de medidas com as medidas obtidas por todos os processos
+	        		MPI_Gatherv(local_measures.data(), local_measures.size(), MPI_FLOAT,
+	        				global_measures.data(), recvcounts.data(), displs.data(), MPI_FLOAT,
+	        		    0, MPI_COMM_WORLD);
+
+	        		//Apresenta o valor agregado de MEDIANA das medidas
+	        		if(my_rank == 0){
+	        			if(global_count > 0){
+
+	        				//Usamos a estratégia de ordenar apenas o suficiente a lista de medidas
+	        			    size_t n = global_measures.size() / 2;
+
+	        			    //Para obter a mediana é preciso que a lista esteja ordenada, nesse caso apenas o suficiente
+	        			    std::nth_element(global_measures.begin(), global_measures.begin()+n, global_measures.end());
+
+	        			    //Obtemos o valor mediano, após a ordenação
+	        				std::cout << "Md(M" << measure_id << ") = " << global_measures[n] << ' ';
+	        			}
+	        		}
+
+	        	}
+
+	        	//O próximo operador será associado à próxima medida
+	        	measure_id++;
+
+	        }
+		}
+
+		//Final de linha, apenas para organizar as respostas
+		if(my_rank == 0){
+			if(global_count > 0){
+				//Oficialmente terminamos de responder a consulta!
+				std::cout << std::endl;
+			}
+		}
+
 	} else { //Consulta tem pelo menos um operador inquire
 
 		//Só faz sentido tentar responder a consulta se a interseção não for fazia
@@ -233,6 +420,21 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 						//Extraia apenas o valor de atributo, o primeiro elemento do pair, e salve na lista de atributos
 						attribs_set.insert(attrib_pair_tids.first);
 					}
+
+                    //LÊ AS MEDIDAS DO BLOCO EM DISCO
+
+                    //Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
+                    std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
+
+                    //Indica que o arquivo de entrada será um stream de dados binários
+                    std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
+
+                    //Serialização é feita pela biblioteca Boost
+                    boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
+
+                    //Carrega os dados de medidas do BID que estavam em disco
+                    im & bmeas[bid];
+
 				}
 
 				//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
@@ -334,7 +536,7 @@ void BlockCube::QueryCube(std::vector<int> query, int my_rank, int num_dims, std
 					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
 
 					//Todos os processos executam a query
-					QueryCube(query_running, my_rank, num_dims, output_folder, num_procs);
+					QueryCube(query_running, queries_ops, my_rank, num_dims, output_folder, num_procs);
 				}
 			}
 
@@ -441,6 +643,9 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
         //Sabendo o tamanho da partição e o tamanho de bloco conseguiremos saber quantos blocos serão criados
         int num_bids = (tuple_partition_size % tbloc == 0) ? tuple_partition_size / tbloc : tuple_partition_size / tbloc + 1;
+
+        //Salva o tamanho do bloco numa variável privada do objeto da classe cubo
+        this->tbloc = tbloc;
 
         //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura bCubingBloc
         bbloc.resize(num_dims);

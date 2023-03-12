@@ -30,6 +30,9 @@ int main(int argc, char *argv[])
 		//Uma forma de listar todas as consultas a serem executadas no cubo
         std::vector<std::vector<int>> queries;
 
+        //Uma ou mais listas de operações do usuário para executar em medidas cubo de dados
+        std::vector<std::string> queries_ops;
+
         //Tempos de computação/consultas (para gelar o relatório de execução)
         TimePoint begin_compute; //Começou a computar (ponto no tempo)
         TimePoint end_compute; //Terminou de computar (ponto no tempo)
@@ -73,7 +76,7 @@ int main(int argc, char *argv[])
         //Verifica todas as variáveis passadas pelo usuário e garanta que sejam válidas
         //Também atribui valores as variáveis que depois serão usadas para computar e consultar cubos.
         if (!IO.ParseInput(argc, argv, my_rank, num_procs, num_dims, num_meas,
-                        num_tuples, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, queries,
+                        num_tuples, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, queries, queries_ops,
                         cube_algorithm, cube_table, on_demand))
         {
         	MPI_Finalize();
@@ -108,6 +111,10 @@ int main(int argc, char *argv[])
                 	cube = std::make_unique<FragCube>(FragCube());
             }
 
+            cube->tuple_partition_listings = tuple_partition_listings;
+
+            cube->dim_partition_listings = dim_partition_listings;
+
     		//Tempo de início da computação
             begin_compute = Time::now();
 
@@ -133,13 +140,13 @@ int main(int argc, char *argv[])
             }
 
         	//Irá avaliar consulta a consulta que o usuário forneceu
-            for (auto &query : queries)
+            for (std::vector<T>::size_type num_query = 0; num_query != queries.size(); num_query++)
             {
         		//Tempo de início das consulta
                 begin_query = Time::now();
 
                 //Invoca a implementação do método de consulta do cubo
-            	cube->QueryCube(query, my_rank, num_dims, output_folder, num_procs);
+            	cube->QueryCube(queries[num_query], queries_ops[num_query], my_rank, num_dims, output_folder, num_procs);
 
         		//Tempo logo após finalização da consulta
                 end_query = Time::now();
