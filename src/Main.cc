@@ -33,6 +33,10 @@ int main(int argc, char *argv[])
         //Uma ou mais listas de operações do usuário para executar em medidas cubo de dados
         std::vector<std::string> queries_ops;
 
+        //Esse é um "cache" de consultas respondidas que mapeia a consulta (sequência de inteiros) à quantidade de TIDs encontrados
+        //A ideia é que cada consulta que tenha uma frequência de TIDs maior que 0 seja salva aqui para evitar retrabalho
+        std::map<std::vector<int>, int> query_cache;
+
         //Tempos de computação/consultas (para gelar o relatório de execução)
         TimePoint begin_compute; //Começou a computar (ponto no tempo)
         TimePoint end_compute; //Terminou de computar (ponto no tempo)
@@ -111,8 +115,10 @@ int main(int argc, char *argv[])
                 	cube = std::make_unique<FragCube>(FragCube());
             }
 
+            //Essa lista fica salva como parte integrante dos dados de qualquer cubo
             cube->tuple_partition_listings = tuple_partition_listings;
 
+            //Essa lista fica salva como parte integrante dos dados de qualquer cubo
             cube->dim_partition_listings = dim_partition_listings;
 
     		//Tempo de início da computação
@@ -146,7 +152,7 @@ int main(int argc, char *argv[])
                 begin_query = Time::now();
 
                 //Invoca a implementação do método de consulta do cubo
-            	cube->QueryCube(queries[num_query], queries_ops[num_query], my_rank, num_dims, output_folder, num_procs);
+            	cube->QueryCube(queries[num_query], queries_ops[num_query], query_cache, my_rank, num_dims, output_folder, num_procs);
 
         		//Tempo logo após finalização da consulta
                 end_query = Time::now();

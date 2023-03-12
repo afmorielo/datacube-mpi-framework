@@ -30,7 +30,10 @@ BlockCube::operator=(const BlockCube&)
         return *this;
 }
 
-void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, std::map<std::vector<int>, int>& query_cache, int my_rank, int num_dims, std::string output_folder, int num_procs){
+
+	//Verifica no cache de consultas se a consulta já foi repetida para evitar retrabalho - útil nas inquires
+	if(query_cache.count(query) == 0){
 
 	//Cada processo MPI tem um diretório próprio para armazenar dados do cubo
 	std::string process_directory = output_folder + "/proc" + std::to_string(my_rank);
@@ -186,8 +189,13 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 		}
 
 		//Somente será executado quando todos processos chegarem nesse ponto
-		//Combina as respostas de todos num só processo
-		MPI_Reduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+		//Combina as respostas de todos, e todos sabem qual a contagem global de tuplas
+		MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+		//Se essa consulta teve algum resultado, vamos guardá-la em cache para evitar a reconsulta
+		if(global_count > 0){
+			query_cache[query] = global_count;
+		}
 
 		if(my_rank == 0){
 			if(global_count > 0){
@@ -536,7 +544,7 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
 
 					//Todos os processos executam a query
-					QueryCube(query_running, queries_ops, my_rank, num_dims, output_folder, num_procs);
+					QueryCube(query_running, queries_ops, query_cache, my_rank, num_dims, output_folder, num_procs);
 				}
 			}
 
@@ -568,6 +576,8 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, int m
 					indices[i] = 0;
 			}
 		}
+	}
+
 	}
 }
 

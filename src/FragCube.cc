@@ -24,7 +24,10 @@ FragCube::operator=(const FragCube&)
         return *this;
 }
 
-void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::map<std::vector<int>, int>& query_cache, int my_rank, int num_dims, std::string output_folder, int num_procs){
+
+	//Verifica no cache de consultas se a consulta já foi repetida para evitar retrabalho - útil nas inquires
+	if(query_cache.count(query) == 0){
 
 	//Listas de TIDs fazem parte da resposta da consulta
 	//Cada posição do vector armazena uma lista de TIDs
@@ -119,8 +122,13 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my
 	if(inquires.empty()){
 
 		//Somente será executado quando todos processos chegarem nesse ponto
-		//Combina as respostas de todos num só processo
-		MPI_Reduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+		//Combina as respostas de todos, e todos sabem qual a contagem global de tuplas
+		MPI_Allreduce(&local_count, &global_count, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+
+		//Se essa consulta teve algum resultado, vamos guardá-la em cache para evitar a reconsulta
+		if(global_count > 0){
+			query_cache[query] = global_count;
+		}
 
 		//Apresenta inicialmente a contagem de tuplas
 		if(my_rank == 0){
@@ -373,7 +381,7 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my
 					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
 
 					//Todos os processos executam a query
-					QueryCube(query_running, queries_ops, my_rank, num_dims, output_folder, num_procs);
+					QueryCube(query_running, queries_ops, query_cache, my_rank, num_dims, output_folder, num_procs);
 				}
 			}
 
@@ -405,6 +413,8 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, int my
 					indices[i] = 0;
 			}
 		}
+
+	}
 
 	}
 }
