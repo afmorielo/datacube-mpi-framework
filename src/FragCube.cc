@@ -304,6 +304,69 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 			lists_of_attribs[dim_number] = { query[dim_number] };
 		}
 
+		//Nesse ponto cada processo deve ter gerado listas de listas de atributos
+		//Dimensões onde há inquire terão listas maiores, algo do tipo para a consulta ? 1 2 = [[1,2,3,4,5], 1, 2]
+		//Então o que eu quero agora é: cada processo a partir do 0, para cada inquire, vai enviar os valores de atributos que tem
+		for(auto & dim_number : inquires){
+
+			//Esse set irá guardar os atributos, sem repetições, entre os obtidos por todos os processos
+			std::set<int> proc_attribs_inquire_unique;
+
+			//Para cada uma das dimensões associadas à consultas inquire
+			for(int proc = 1; proc < num_procs; proc++){
+
+				//Número de atributos que serão enviados
+				int num_attribs;
+
+				//Irá armazenar os valores de atributo de cada processo, para cada inquire
+				std::vector<int> proc_attribs_inquire;
+
+				//Se for o rank 0 irá receber os atributos
+				if(my_rank == 0){
+
+					//Primeiro precisa receber um inteiro com o tamanho da lista que será enviada
+				    MPI_Recv(&num_attribs, 1, MPI_INT, proc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+				    //Garanta que o vector tem espaço suficiente
+				    proc_attribs_inquire.resize(num_attribs);
+
+					//Recebe a lista de atributos
+				    MPI_Recv(proc_attribs_inquire.data(), num_attribs, MPI_INT, proc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+				    //Coloque todos os atributos do vector no set, sem repetições
+				    for(auto &attr : proc_attribs_inquire){
+				    	proc_attribs_inquire_unique.insert(attr);
+				    }
+
+				} else if (my_rank == proc){ //Demais irão enviar seus atributos (o 0 envia para ele mesmo)
+
+					//Calcula o tamanho da lista que será enviada, com os atributos dessa dimensão com inquire
+					num_attribs = lists_of_attribs[dim_number].size();
+
+					//Envia o tamanho da lista de atributos da dimensão com inquire
+				    MPI_Send(&num_attribs, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+
+					//Envia a lista de atributos
+				    MPI_Send(lists_of_attribs[dim_number].data(), num_attribs, MPI_INT, 0, 0, MPI_COMM_WORLD);
+
+				}
+			}
+
+			//Aqui o processo de menor rank deve ter uma lista com todos os atributos!
+			//Só faltam os atributos dele próprio, entao fazemos isto
+		    //Coloque todos os atributos do vector no set, sem repetições
+		    for(auto &attr : lists_of_attribs[dim_number]){
+		    	proc_attribs_inquire_unique.insert(attr);
+		    }
+
+			//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
+			std::vector<int> attribs_vector(proc_attribs_inquire_unique.begin(), proc_attribs_inquire_unique.end());
+
+			//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
+			lists_of_attribs[dim_number] = attribs_vector;
+
+		}
+
 		//Agora serão geradas as combinações de consultas associadas ao inquire
 		//https://www.geeksforgeeks.org/combinations-from-n-arrays-picking-one-element-from-each-array/
 
@@ -329,6 +392,12 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 
 		//Equivalente a um booleano, 0 - FALSE, 1 -TRUE, que indica se o processo atual terminou de gerar consultas
 		int finished = 0;
+
+		//Na prática qualquer processo que não seja o de menor rank não deve fazer nada
+		//Agora que o processo de menor rank tem as listas de atributos, ele consegue gerar as consultas
+		if(my_rank != 0){
+			finished = 1;
+		}
 
 		//Algumas vezes o processo nem gerou as listas pois a interseção de BIDs foi vazia
 		//Isso significa que a partição que o processo recebeu não ajuda na consulta
