@@ -268,6 +268,18 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 
 	} else { //Consulta tem pelo menos um operador inquire
 
+		//Para cada uma das dimensões associadas à consultas point
+		for(auto & dim_number : points){
+			//Insere o valor de atributo como uma nova lista nas listas de atributos
+			lists_of_attribs[dim_number] = { query[dim_number] };
+		}
+
+		//Para cada uma das dimensões associadas à agregações
+		for(auto & dim_number : aggregations){
+			//Insere o valor de atributo como uma nova lista nas listas de atributos
+			lists_of_attribs[dim_number] = { query[dim_number] };
+		}
+
 		//Para cada uma das dimensões associadas à consultas inquire
 		for(auto & dim_number : inquires){
 
@@ -292,17 +304,7 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 
 		}
 
-		//Para cada uma das dimensões associadas à consultas point
-		for(auto & dim_number : points){
-			//Insere o valor de atributo como uma nova lista nas listas de atributos
-			lists_of_attribs[dim_number] = { query[dim_number] };
-		}
 
-		//Para cada uma das dimensões associadas à agregações
-		for(auto & dim_number : aggregations){
-			//Insere o valor de atributo como uma nova lista nas listas de atributos
-			lists_of_attribs[dim_number] = { query[dim_number] };
-		}
 
 		//Nesse ponto cada processo deve ter gerado listas de listas de atributos
 		//Dimensões onde há inquire terão listas maiores, algo do tipo para a consulta ? 1 2 = [[1,2,3,4,5], 1, 2]
@@ -372,43 +374,43 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 		for(auto & dim_number : inquires){
 
 			//Para cada uma das dimensões associadas à consultas inquire
-                        for(int proc = 1; proc < num_procs; proc++){
+			for(int proc = 1; proc < num_procs; proc++){
 
-                                //Número de atributos que serão enviados
-                                int num_attribs;
+					//Número de atributos que serão enviados
+					int num_attribs;
 
-                                //Irá armazenar os valores de atributo de cada processo, para cada inquire
-                                std::vector<int> proc_attribs_inquire;
+					//Irá armazenar os valores de atributo de cada processo, para cada inquire
+					std::vector<int> proc_attribs_inquire;
 
-                                //Se não for o rank 0 irá receber os atributos
-                                if(my_rank == proc){
+					//Se não for o rank 0 irá receber os atributos
+					if(my_rank == proc){
 
-                                    //Primeiro precisa receber um inteiro com o tamanho da lista que será enviada
-                                    MPI_Recv(&num_attribs, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+						//Primeiro precisa receber um inteiro com o tamanho da lista que será enviada
+						MPI_Recv(&num_attribs, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-                                    //Garanta que o vector tem espaço suficiente
-                                    proc_attribs_inquire.resize(num_attribs);
+						//Garanta que o vector tem espaço suficiente
+						proc_attribs_inquire.resize(num_attribs);
 
-                                    //Recebe a lista de atributos
-                                    MPI_Recv(proc_attribs_inquire.data(), num_attribs, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+						//Recebe a lista de atributos
+						MPI_Recv(proc_attribs_inquire.data(), num_attribs, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-                                    //Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
-                                    lists_of_attribs[dim_number] = proc_attribs_inquire;
+						//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
+						lists_of_attribs[dim_number] = proc_attribs_inquire;
 
 
-                                } else if (my_rank == 0){ //O 0 envia seus atributos para os demais
+					} else if (my_rank == 0){ //O 0 envia seus atributos para os demais
 
-                                    //Calcula o tamanho da lista que será enviada, com os atributos dessa dimensão com inquire
-                                    num_attribs = lists_of_attribs[dim_number].size();
+						//Calcula o tamanho da lista que será enviada, com os atributos dessa dimensão com inquire
+						num_attribs = lists_of_attribs[dim_number].size();
 
-                                    //Envia o tamanho da lista de atributos da dimensão com inquire
-                                    MPI_Send(&num_attribs, 1, MPI_INT, proc, 0, MPI_COMM_WORLD);
+						//Envia o tamanho da lista de atributos da dimensão com inquire
+						MPI_Send(&num_attribs, 1, MPI_INT, proc, 0, MPI_COMM_WORLD);
 
-                                    //Envia a lista de atributos
-                                    MPI_Send(lists_of_attribs[dim_number].data(), num_attribs, MPI_INT, proc, 0, MPI_COMM_WORLD);
+						//Envia a lista de atributos
+						MPI_Send(lists_of_attribs[dim_number].data(), num_attribs, MPI_INT, proc, 0, MPI_COMM_WORLD);
 
-                                }
-                        }
+					}
+			}
 
 		}
 
