@@ -268,6 +268,18 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 
 	} else { //Consulta tem pelo menos um operador inquire
 
+		//Para cada uma das dimensões associadas à consultas point
+		for(auto & dim_number : points){
+			//Insere o valor de atributo como uma nova lista nas listas de atributos
+			lists_of_attribs[dim_number] = { query[dim_number] };
+		}
+
+		//Para cada uma das dimensões associadas à agregações
+		for(auto & dim_number : aggregations){
+			//Insere o valor de atributo como uma nova lista nas listas de atributos
+			lists_of_attribs[dim_number] = { query[dim_number] };
+		}
+
 		//Para cada uma das dimensões associadas à consultas inquire
 		for(auto & dim_number : inquires){
 
@@ -292,16 +304,114 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 
 		}
 
-		//Para cada uma das dimensões associadas à consultas point
-		for(auto & dim_number : points){
-			//Insere o valor de atributo como uma nova lista nas listas de atributos
-			lists_of_attribs[dim_number] = { query[dim_number] };
+
+
+		//Nesse ponto cada processo deve ter gerado listas de listas de atributos
+		//Dimensões onde há inquire terão listas maiores, algo do tipo para a consulta ? 1 2 = [[1,2,3,4,5], 1, 2]
+		//Então o que eu quero agora é: cada processo a partir do 0, para cada inquire, vai enviar os valores de atributos que tem
+		for(auto & dim_number : inquires){
+
+			//Esse set irá guardar os atributos, sem repetições, entre os obtidos por todos os processos
+			std::set<int> proc_attribs_inquire_unique;
+
+			//Para cada uma das dimensões associadas à consultas inquire
+			for(int proc = 1; proc < num_procs; proc++){
+
+				//Número de atributos que serão enviados
+				int num_attribs;
+
+				//Irá armazenar os valores de atributo de cada processo, para cada inquire
+				std::vector<int> proc_attribs_inquire;
+
+				//Se for o rank 0 irá receber os atributos
+				if(my_rank == 0){
+
+					//Primeiro precisa receber um inteiro com o tamanho da lista que será enviada
+				    MPI_Recv(&num_attribs, 1, MPI_INT, proc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+				    //Garanta que o vector tem espaço suficiente
+				    proc_attribs_inquire.resize(num_attribs);
+
+					//Recebe a lista de atributos
+				    MPI_Recv(proc_attribs_inquire.data(), num_attribs, MPI_INT, proc, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+				    //Coloque todos os atributos do vector no set, sem repetições
+				    for(auto &attr : proc_attribs_inquire){
+				    	proc_attribs_inquire_unique.insert(attr);
+				    }
+
+				} else if (my_rank == proc){ //Demais irão enviar seus atributos (o 0 envia para ele mesmo)
+
+					//Calcula o tamanho da lista que será enviada, com os atributos dessa dimensão com inquire
+					num_attribs = lists_of_attribs[dim_number].size();
+
+					//Envia o tamanho da lista de atributos da dimensão com inquire
+				    MPI_Send(&num_attribs, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+
+					//Envia a lista de atributos
+				    MPI_Send(lists_of_attribs[dim_number].data(), num_attribs, MPI_INT, 0, 0, MPI_COMM_WORLD);
+
+				}
+			}
+
+			//Aqui o processo de menor rank deve ter uma lista com todos os atributos!
+			//Só faltam os atributos dele próprio, entao fazemos isto
+		    //Coloque todos os atributos do vector no set, sem repetições
+		    for(auto &attr : lists_of_attribs[dim_number]){
+		    	proc_attribs_inquire_unique.insert(attr);
+		    }
+
+			//Converte o conjunto para um vector simples, agora que sabemos que está ordenado (para poder ser usado no método de interseção)
+			std::vector<int> attribs_vector(proc_attribs_inquire_unique.begin(), proc_attribs_inquire_unique.end());
+
+			//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
+			lists_of_attribs[dim_number] = attribs_vector;
+
 		}
 
-		//Para cada uma das dimensões associadas à agregações
-		for(auto & dim_number : aggregations){
-			//Insere o valor de atributo como uma nova lista nas listas de atributos
-			lists_of_attribs[dim_number] = { query[dim_number] };
+		//Agora o processo de menor rank tem uma lista de todos os atributos de cada inquire
+		//Fazemos o processo inverso, atualizando os demais processo com essas listas
+		for(auto & dim_number : inquires){
+
+			//Para cada uma das dimensões associadas à consultas inquire
+			for(int proc = 1; proc < num_procs; proc++){
+
+					//Número de atributos que serão enviados
+					int num_attribs;
+
+					//Irá armazenar os valores de atributo de cada processo, para cada inquire
+					std::vector<int> proc_attribs_inquire;
+
+					//Se não for o rank 0 irá receber os atributos
+					if(my_rank == proc){
+
+						//Primeiro precisa receber um inteiro com o tamanho da lista que será enviada
+						MPI_Recv(&num_attribs, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+						//Garanta que o vector tem espaço suficiente
+						proc_attribs_inquire.resize(num_attribs);
+
+						//Recebe a lista de atributos
+						MPI_Recv(proc_attribs_inquire.data(), num_attribs, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+						//Insere a lista de atributos da dimensão com inquire na posição associada à dimensão nas listas de atributos
+						lists_of_attribs[dim_number] = proc_attribs_inquire;
+
+
+					} else if (my_rank == 0){ //O 0 envia seus atributos para os demais
+
+						//Calcula o tamanho da lista que será enviada, com os atributos dessa dimensão com inquire
+						num_attribs = lists_of_attribs[dim_number].size();
+
+						//Envia o tamanho da lista de atributos da dimensão com inquire
+						MPI_Send(&num_attribs, 1, MPI_INT, proc, 0, MPI_COMM_WORLD);
+
+						//Envia a lista de atributos
+						MPI_Send(lists_of_attribs[dim_number].data(), num_attribs, MPI_INT, proc, 0, MPI_COMM_WORLD);
+
+					}
+			}
+
 		}
 
 		//Agora serão geradas as combinações de consultas associadas ao inquire
@@ -319,37 +429,8 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 			indices[i] = 0;
 		}
 
-		//Quantidade de processos que já terminaram de gerar consultas
-		//Inicialmente é zero pois nenhuma consulta foi gerada/respondida ainda
-		int procs_finished = 0;
-
-		//Armazena uma lista dos indicadores de finalização de cada processo
-		//É útil para os demais processos saberem quando alguém vai enviar uma nova consulta ou não
-		std::vector<int> procs_finished_control(num_procs);
-
-		//Equivalente a um booleano, 0 - FALSE, 1 -TRUE, que indica se o processo atual terminou de gerar consultas
-		int finished = 0;
-
-		//Algumas vezes o processo nem gerou as listas pois a interseção de BIDs foi vazia
-		//Isso significa que a partição que o processo recebeu não ajuda na consulta
-		//Sendo assim, ele já finalizou e verificar a primeira lista é suficiente pra confirmar isso
-		if(lists_of_attribs.front().empty()){
-			finished = 1;
-		}
-
 		//Só sai desse laço com um "break"
 		while (1) {
-
-			//Soma os indicadores de finalização de todos os processos e salva numa variável com a contagem geral, todos tem uma cópia
-			MPI_Allreduce(&finished, &procs_finished, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-
-			//Se todos tiverem finalizado, todos terão definido um valor "1" e a soma será igual ao número de processos
-			//Nesse caso pode encerrar a execução
-			if(procs_finished == num_procs)
-				break;
-
-			//Captura os indicadores de finalização de todos os processos e salva na lista geral, que todos tem uma cópia
-			MPI_Allgather(&finished, 1, MPI_INT, procs_finished_control.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
 			//Armazena a consulta gerada pelo processo nessa iteração
 			std::vector<int> query(num_dims);
@@ -357,61 +438,37 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 			//Armazena a consulta, dentre aquelas gerados por todos os processos nessa iteração, sendo executada nesse momento
 			std::vector<int> query_running(num_dims);
 
-			//Só faz sentido tentar gerar uma nova consulta se ainda não tiver finalizado
-			if(finished == 0){
-				//Gera a consulta com base na próxima combinaçao de atributos
-				for (int i = 0; i < number_of_lists; i++){
-					query[i] = lists_of_attribs[i][indices[i]];
-				}
+			//Gera a consulta com base na próxima combinaçao de atributos
+			for (int i = 0; i < number_of_lists; i++){
+				query[i] = lists_of_attribs[i][indices[i]];
 			}
 
-			//Nesse ponto cada processo que poderia gerar uma nova consulta gerou uma nova consulta nessa iteração
-			for(int i = 0; i < num_procs; i++){
-
-				//A cada etapa do laço define um processo como o "mandante"
-				if(my_rank == i){
-					//A consulta que será executada é a consulta gerada por aquele processo
-					query_running = query;
-				}
-
-				//Todos os processos verificam se o "mandante" já está finalizado
-				if(procs_finished_control[i] == 0){
-
-					//A query do "mandante" é enviada para todos os demais processos
-					MPI_Bcast(&query_running[0], num_dims, MPI_INT, i, MPI_COMM_WORLD);
-
-					//Todos os processos executam a query
-					QueryCube(query_running, queries_ops, query_cache, my_rank, num_dims, output_folder, num_procs);
-				}
-			}
+			//Todos os processos executam a query
+			QueryCube(query, queries_ops, query_cache, my_rank, num_dims, output_folder, num_procs);
 
 			// Começa do final e volta procurando
 			// a lista com mais elementos a serem
 			// combinados
 			int next = number_of_lists - 1;
 
-			if(finished == 0){
-				while (next >= 0 &&
-					  (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
-					next--;
+			while (next >= 0 &&
+				  (static_cast<std::vector<int>::size_type>(indices[next] + 1) >= lists_of_attribs[next].size()))
+				next--;
 
-				// Nenhuma lista encontrada
-				// então não há mais combinações
-				if (next < 0)
-					finished = 1;
-			}
+			// Nenhuma lista encontrada
+			// então não há mais combinações
+			if (next < 0)
+				break;
 
-			if(finished == 0){
-				// Se encontrou move-se para o próximo
-				// elemento na lista
-				indices[next]++;
+			// Se encontrou move-se para o próximo
+			// elemento na lista
+			indices[next]++;
 
-				// Para todas as listas à direita desta
-				// o índice de combinações novamnete retorna
-				// para o primeiro elemento
-				for (int i = next + 1; i < number_of_lists; i++)
-					indices[i] = 0;
-			}
+			// Para todas as listas à direita desta
+			// o índice de combinações novamnete retorna
+			// para o primeiro elemento
+			for (int i = next + 1; i < number_of_lists; i++)
+				indices[i] = 0;
 		}
 
 	}
