@@ -107,6 +107,9 @@ std::vector<int> DataCube::IntersectMultipleVectors(std::vector<std::vector<int>
 		intermediate.clear();
 	}
 
+	// Se a entrada é ordenda, a saída também deve obrigatoriamente, ser ordenada
+	std::sort(intersection_vector.begin(), intersection_vector.end());
+
 	//Retorna a interseção final das listas de inteiros
 	return intersection_vector;
 }

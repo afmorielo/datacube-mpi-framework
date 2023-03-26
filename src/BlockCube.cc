@@ -734,7 +734,7 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
         //Se o diretório de saída estiver vazio, significa que foi recém criado (cubo ainda não computado)
         //Nesse caso procede à computação do cubo normalmente
-        if(boost::filesystem::is_empty(output_folder)){
+        if(!boost::filesystem::exists(process_directory)){
 
             //Cria o diretório associado ao processo
             boost::filesystem::create_directory(process_directory);
