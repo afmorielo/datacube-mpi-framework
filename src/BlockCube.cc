@@ -720,6 +720,15 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
         //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura bCubingBlocRAM
         bblocRAM.resize(num_dims);
 
+        //Agora que sabemos a quantidade de dimensões, redimensiona a estrutura bCubingCount (cache de COUNT em memória)
+        //Essa estrutura é parte da bCubingBlocRAM mas na implementação achei mais fácil fazer separada
+        bcount.resize(num_dims);
+
+        //Garantiamos a alocação de memória para todos os BIDS nessa estrutura auxiliar
+        for(auto & dim_bids : bcount){
+        	dim_bids.resize(num_bids);
+        }
+
         //Agora que sabemos a quantidade de blocos, redimensiona a estrutura bCubingMeasures
         bmeas.resize(num_bids);
 
@@ -957,6 +966,10 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
     									//Em cada dimensão insere ou atualiza uma entrada com o valor de atributo da dimensão e um novo BID associado
     									bblocRAM[dim_number][tuple.dims[dim_number]].insert(bid);
+
+    									//Insere ou atualiza uma entrada com o valor do TID e as medidas associadas
+    									//Preenche um bloco por vez na memória e depois salva em disco, por isso aqui sempre usa a primeira posição
+    									bcount[dim_number][bid][tuple.dims[dim_number]]++;
     							}
 
     							//Atualiza as entradas da variável bCubingMeasures
@@ -1070,6 +1083,18 @@ void BlockCube::ComputeCube(std::string cube_table, int num_dims,
 
         //Limpa o espaço em memória para o buffer de leitura
         read_buffer.clear();
+
+        /*if(my_rank == 2){
+        	for(int i = 0; i < bcount.size(); i++){
+        		std::cout << "[ DIMENSÃO " << i << " ] " << std::endl;
+        		for(int j = 0; j < bcount[i].size(); j++){
+        			std::cout << "BID: " << j << std::endl;
+        			for(auto & m : bcount[i][j]){
+        				std::cout << "Fr(" << m.first << ") = " << m.second << std::endl;
+        			}
+        		}
+        	}
+        }*/
 
         //Barreira de sincronismo - só continua quando todos os processos chegarem até aqui
         MPI_Barrier(MPI_COMM_WORLD);
