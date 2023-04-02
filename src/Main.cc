@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
                 begin_query = Time::now();
 
                 //Invoca a implementação do método de consulta do cubo
-            	cube->QueryCube(queries[num_query], queries_ops[num_query], query_cache, my_rank, num_dims, output_folder, num_procs);
+            	cube->QueryCube(queries[num_query], queries_ops[num_query], query_cache, my_rank, num_dims, num_tuples, output_folder, num_procs, tuple_partition_size);
 
         		//Tempo logo após finalização da consulta
                 end_query = Time::now();

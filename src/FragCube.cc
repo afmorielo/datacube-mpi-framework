@@ -24,7 +24,7 @@ FragCube::operator=(const FragCube&)
         return *this;
 }
 
-void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::map<std::vector<int>, int>& query_cache, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::map<std::vector<int>, int>& query_cache, int my_rank, int num_dims, int num_tuples, std::string output_folder, int num_procs, int tuple_partition_size){
 
 	//Verifica no cache de consultas se a consulta já foi repetida para evitar retrabalho - útil nas inquires
 	if(query_cache.count(query) == 0){
@@ -444,7 +444,7 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 			}
 
 			//Todos os processos executam a query
-			QueryCube(query, queries_ops, query_cache, my_rank, num_dims, output_folder, num_procs);
+			QueryCube(query, queries_ops, query_cache, my_rank, num_dims, num_tuples, output_folder, num_procs, tuple_partition_size);
 
 			// Começa do final e volta procurando
 			// a lista com mais elementos a serem
