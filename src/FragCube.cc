@@ -24,7 +24,7 @@ FragCube::operator=(const FragCube&)
         return *this;
 }
 
-void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::map<std::vector<int>, int>& query_cache, int my_rank, int num_dims, std::string output_folder, int num_procs){
+void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::map<std::vector<int>, int>& query_cache, int my_rank, int num_dims, int num_tuples, std::string output_folder, int num_procs, int tuple_partition_size){
 
 	//Verifica no cache de consultas se a consulta já foi repetida para evitar retrabalho - útil nas inquires
 	if(query_cache.count(query) == 0){
@@ -89,33 +89,50 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 
 	}
 
-	//Normalmente o ideal seria fazer uma busca melhor aqui
-	//Verificamos se existe um cuboide que engloba TODAS as dimensões associadas a points
-	//No entanto, se não houver o cuboide de mais alto nível poderia combinar cubois menores
-	//E.g: a consulta tem points nas dimensões [0,1,3] e tentamos buscar o cuboide [0,1,3], que não existe
-	//o ideal seria então buscar os cuboides [0,1],[0,3] e [1,3] e só em último caso os cuboides [0],[1],[3]
-	//Mas aqui tentamos o cuboide de mais alto nível e depois partimos direto pro mais baixo nível
-	if(cuboids.count(points) != 0){
-		//Busca a lista de TIDs que já foi pré-calculada
-		tids_intersection = cuboids[points][points_attrs];
+	//Caso não existam points na consulta, então deve ter apenas agregação e inquires
+	//Logo, deve considerar TODOS os tids da partição associada a esse processo
+	if(points.empty()){
+
+		//Soma de tuplas até o começo da partição associada a esse processo
+		int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
+
+		//Adiciona TODOS os valores de TIDs da partição
+		for(int tid = 1; tid <= tuple_partition_size; tid++){
+			tids_intersection.push_back(tid + sum_of_partitions);
+		}
 
 		//Atualiza o valor de COUNT localmente para a consulta
 		local_count = tids_intersection.size();
 
 	} else {
+		//Normalmente o ideal seria fazer uma busca melhor aqui
+		//Verificamos se existe um cuboide que engloba TODAS as dimensões associadas a points
+		//No entanto, se não houver o cuboide de mais alto nível poderia combinar cubois menores
+		//E.g: a consulta tem points nas dimensões [0,1,3] e tentamos buscar o cuboide [0,1,3], que não existe
+		//o ideal seria então buscar os cuboides [0,1],[0,3] e [1,3] e só em último caso os cuboides [0],[1],[3]
+		//Mas aqui tentamos o cuboide de mais alto nível e depois partimos direto pro mais baixo nível
+		if(cuboids.count(points) != 0){
+			//Busca a lista de TIDs que já foi pré-calculada
+			tids_intersection = cuboids[points][points_attrs];
 
-		//Para cada uma das dimensões associadas à consultas point buscamos nos cuboides
-		//a lista de TIDs associada ao atributo requerido na consulta para essa dimensão
-		for(std::vector<T>::size_type index = 0; index != points.size(); index++) {
-			//Busca os TIDs da estrutura de índice invertido mantida em memória
-			lists_of_tids.push_back(cuboids[{ points[index] }][{ points_attrs[index] }]);
+			//Atualiza o valor de COUNT localmente para a consulta
+			local_count = tids_intersection.size();
+
+		} else {
+
+			//Para cada uma das dimensões associadas à consultas point buscamos nos cuboides
+			//a lista de TIDs associada ao atributo requerido na consulta para essa dimensão
+			for(std::vector<T>::size_type index = 0; index != points.size(); index++) {
+				//Busca os TIDs da estrutura de índice invertido mantida em memória
+				lists_of_tids.push_back(cuboids[{ points[index] }][{ points_attrs[index] }]);
+			}
+
+			//Faz a interseção das listas de TIDS encontradas
+			tids_intersection = IntersectMultipleVectors(lists_of_tids);
+
+			//Atualiza o valor de COUNT localmente para a consulta
+			local_count = tids_intersection.size();
 		}
-
-		//Faz a interseção das listas de TIDS encontradas
-		tids_intersection = IntersectMultipleVectors(lists_of_tids);
-
-		//Atualiza o valor de COUNT localmente para a consulta
-		local_count = tids_intersection.size();
 	}
 
 	//Se não tiver nenhuma consulta inquire, deve ter apenas points
@@ -444,7 +461,7 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 			}
 
 			//Todos os processos executam a query
-			QueryCube(query, queries_ops, query_cache, my_rank, num_dims, output_folder, num_procs);
+			QueryCube(query, queries_ops, query_cache, my_rank, num_dims, num_tuples, output_folder, num_procs, tuple_partition_size);
 
 			// Começa do final e volta procurando
 			// a lista com mais elementos a serem
