@@ -52,10 +52,10 @@ all: main-build
 main-build: datacube-mpi-framework
 
 # Tool invocations
-datacube-mpi-framework: $(OBJS) $(USER_OBJS) makefile $(OPTIONAL_TOOL_DEPS)
+datacube-mpi-framework: $(OBJS) $(USER_OBJS) makefile $(OPTIONAL_TOOL_DEPS) 
 	@echo 'Building target: $@'
 	@echo 'Invoking: GCC C++ Linker'
-	mpic++  -o "datacube-mpi-framework" $(OBJS) $(USER_OBJS) $(LIBS) -lboost_system -lboost_serialization -lboost_program_options -lboost_filesystem
+	mpic++ -L/home/afmorielo/Softwares/Bibliotecas/BoostC++/1_71_0/lib -Wl,-R/home/afmorielo/Softwares/Bibliotecas/BoostC++/1_71_0/lib -o "datacube-mpi-framework" $(OBJS) $(USER_OBJS) $(LIBS)  -lboost_system -lboost_serialization -lboost_program_options -lboost_filesystem
 	@echo 'Finished building target: $@'
 	@echo ' '
 
