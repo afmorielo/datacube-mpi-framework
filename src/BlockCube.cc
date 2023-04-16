@@ -111,10 +111,10 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, std::
 
 	}
 
-	//Se ao chegar nesse ponto não tiver nenhuma lista de BIDs, então não há points na consulta!
-	if(lists_of_bids.size() == 0){
+	//Se não tiver nenhuma point, devem ser todas agregações ou podem ter inquires!
+	if(points.size() == 0){
 
-        //Se só há inquires na consulta, então todos os BIDs devem ser usados
+        //Se só há inquires ou agregações na consulta, então todos os BIDs devem ser usados
         for(int bid = 0; bid < num_bids; bid++){
         	bids_intersection.push_back(bid);
         }
@@ -131,9 +131,8 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, std::
 		//Só faz sentido tentar responder a consulta se a interseção não for fazia
 		if(!bids_intersection.empty()){
 
-			//Pode ser que a interseção seja TODOS os BIDs caso não tenha points na consulta (exemplo, todas agregações)
-			//Caso esperado: * * * *
-			if(bids_intersection.size() == static_cast<std::vector<int>::size_type>(num_bids)){
+			//Se todas as operações da consulta forem agregações, temos o caso: * * * *
+			if(aggregations.size() == static_cast<std::vector<int>::size_type>(num_dims)){
 
 				//Soma de tuplas até o começo da partição associada a esse processo
 				int sum_of_partitions = std::accumulate(tuple_partition_listings.begin(), tuple_partition_listings.begin() + my_rank, 0);
@@ -146,6 +145,34 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, std::
 				//Atualiza o valor de COUNT localmente para a consulta
 				local_count = tids_intersection.size();
 
+				//Adicionalmente, verificamos se tem alguma outra operação de agregação diferente de Frequência (Fr)
+				if(!queries_ops.empty()){
+
+					for(auto & dim_number : aggregations){
+
+						//Se tiver precisamos buscar as medidas de disco da mesma forma
+						for(auto & bid : bids_intersection){
+
+							//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
+							std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
+
+							//LÊ AS MEDIDAS DO BLOCO EM DISCO
+
+							//Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
+							std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
+
+							//Indica que o arquivo de entrada será um stream de dados binários
+							std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
+
+							//Serialização é feita pela biblioteca Boost
+							boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
+
+							//Carrega os dados de medidas do BID que estavam em disco
+							im & bmeas[bid];
+
+						}
+					}
+				}
 
 			} else { //Necessariamente deve ter alguma point nessa consulta
 
