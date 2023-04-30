@@ -24,7 +24,7 @@ FragCube::operator=(const FragCube&)
         return *this;
 }
 
-void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::map<std::vector<int>, int>& query_cache, int my_rank, int num_dims, int num_tuples, std::string output_folder, int num_procs, int tuple_partition_size){
+void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::map<std::vector<int>, int>& query_cache, int my_rank, int num_dims, int num_tuples, std::string output_folder, int num_procs, int tuple_partition_size, bool silent){
 
 	//Verifica no cache de consultas se a consulta já foi repetida para evitar retrabalho - útil nas inquires
 	if(query_cache.count(query) == 0){
@@ -150,10 +150,12 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 		//Apresenta inicialmente a contagem de tuplas
 		if(my_rank == 0){
 			if(global_count > 0){
-				for(auto & operand : query) {
-					(operand == -1) ? std::cout << '*' << ' ' : std::cout << operand << ' ';
+				if(!silent){
+					for(auto & operand : query) {
+						(operand == -1) ? std::cout << '*' << ' ' : std::cout << operand << ' ';
+					}
+					std::cout << ": " << global_count << ' ';
 				}
-				std::cout << ": " << global_count << ' ';
 			}
 		}
 
@@ -201,7 +203,9 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 	        		//Apresenta o valor agregado de SOMA das medidas
 	        		if(my_rank == 0){
 	        			if(global_count > 0){
-	        				std::cout << "Sm(M" << measure_id << ") = " << global_sum << ' ';
+	        				if(!silent){
+		        				std::cout << "Sm(M" << measure_id << ") = " << global_sum << ' ';
+	        				}
 	        			}
 	        		}
 
@@ -262,8 +266,10 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 	        			    //Para obter a mediana é preciso que a lista esteja ordenada, nesse caso apenas o suficiente
 	        			    std::nth_element(global_measures.begin(), global_measures.begin()+n, global_measures.end());
 
-	        			    //Obtemos o valor mediano, após a ordenação
-	        				std::cout << "Md(M" << measure_id << ") = " << global_measures[n] << ' ';
+	        			    if(!silent){
+		        			    //Obtemos o valor mediano, após a ordenação
+		        				std::cout << "Md(M" << measure_id << ") = " << global_measures[n] << ' ';
+	        			    }
 	        			}
 	        		}
 
@@ -278,8 +284,10 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 		//Final de linha, apenas para organizar as respostas
 		if(my_rank == 0){
 			if(global_count > 0){
-				//Oficialmente terminamos de responder a consulta!
-				std::cout << std::endl;
+				if(!silent){
+					//Oficialmente terminamos de responder a consulta!
+					std::cout << std::endl;
+				}
 			}
 		}
 
@@ -461,7 +469,7 @@ void FragCube::QueryCube(std::vector<int> query, std::string queries_ops, std::m
 			}
 
 			//Todos os processos executam a query
-			QueryCube(query, queries_ops, query_cache, my_rank, num_dims, num_tuples, output_folder, num_procs, tuple_partition_size);
+			QueryCube(query, queries_ops, query_cache, my_rank, num_dims, num_tuples, output_folder, num_procs, tuple_partition_size, silent);
 
 			// Começa do final e volta procurando
 			// a lista com mais elementos a serem

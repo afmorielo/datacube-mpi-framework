@@ -11,7 +11,7 @@ public:
 			int &tuple_partition_size, int &dim_partition_size,
 			int &reading_rate, int &tbloc, std::string &output_folder,
 			std::vector<std::vector<int>> &queries, std::vector<std::string> &queries_ops,
-			std::string &cube_algorithm, std::string &cube_table, bool &on_demand);
+			std::string &cube_algorithm, std::string &cube_table, bool &on_demand, bool &silent);
 protected:
 private:
 };
