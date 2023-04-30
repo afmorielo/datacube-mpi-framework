@@ -221,7 +221,7 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                 int num_procs, int &num_dims, int &num_meas, int &num_tuples,
                 int &tuple_partition_size, int &dim_partition_size, int &reading_rate, int &tbloc, std::string &output_folder,
                 std::vector<std::vector<int>> &queries, std::vector<std::string> &queries_ops,
-                std::string &cube_algorithm, std::string &cube_table, bool &on_demand)
+                std::string &cube_algorithm, std::string &cube_table, bool &on_demand, bool &silent)
 {
         try
         {
@@ -286,7 +286,10 @@ bool Handler::ParseInput(int argc, char *argv[], int my_rank,
                                 "arquivo binário contendo uma tabela com dados para os quais deseja computar o cubo")(
                                 "on-demand",
                                 po::bool_switch(&on_demand)->default_value(
-                                                false), "se true, cubo será computado com base nas consultas (mais rápido)");
+                                                false), "se true, cubo será computado com base nas consultas (mais rápido)")(
+                                "silent",
+                                po::bool_switch(&silent)->default_value(
+                                		false), "se true, irá omitir a saída de todas as consultas (para benchmarking)");
 
                 po::options_description config("Opção de arquivo de configuração");
                 config.add_options()("config-file",

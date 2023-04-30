@@ -46,6 +46,9 @@ int main(int argc, char *argv[])
         //Se TRUE, o cubo será computado sob demanda. Se FALSE, será computado para qualquer consulta
         bool on_demand;
 
+        //Se TRUE, irá omitir as saídas das consultas. Se FALSE, a saída as consultas será apresentada normalmente
+        bool silent;
+
         int my_rank; 	//Rank do processo (0 até N-1)
         int num_procs;  //Numero de processos em execução
         int num_dims;	//Número de dimensões do dataset/cubo
@@ -81,7 +84,7 @@ int main(int argc, char *argv[])
         //Também atribui valores as variáveis que depois serão usadas para computar e consultar cubos.
         if (!IO.ParseInput(argc, argv, my_rank, num_procs, num_dims, num_meas,
                         num_tuples, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, queries, queries_ops,
-                        cube_algorithm, cube_table, on_demand))
+                        cube_algorithm, cube_table, on_demand, silent))
         {
         	MPI_Finalize();
         }
@@ -152,7 +155,7 @@ int main(int argc, char *argv[])
                 begin_query = Time::now();
 
                 //Invoca a implementação do método de consulta do cubo
-            	cube->QueryCube(queries[num_query], queries_ops[num_query], query_cache, my_rank, num_dims, num_tuples, output_folder, num_procs, tuple_partition_size);
+            	cube->QueryCube(queries[num_query], queries_ops[num_query], query_cache, my_rank, num_dims, num_tuples, output_folder, num_procs, tuple_partition_size, silent);
 
         		//Tempo logo após finalização da consulta
                 end_query = Time::now();
