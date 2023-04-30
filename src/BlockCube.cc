@@ -219,42 +219,44 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, std::
 						//Resolveremos primeiro elas, buscando os BIDs associados em disco
 						for(auto & bid : bids_intersection){
 
-							//LÊ O BLOCO DO DISCO
+							if(bbloc[dim_number][bid].empty()){
+								//LÊ O BLOCO DO DISCO
 
-							//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
-		                    std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
+								//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
+			                    std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
 
-							//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
-							std::string bid_filename = bloc_directory + "/tids/" + std::to_string(bid) + ".bin";
+								//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
+								std::string bid_filename = bloc_directory + "/tids/" + std::to_string(bid) + ".bin";
 
-							//Indica que o arquivo de entrada será um stream de dados binários
-							std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
+								//Indica que o arquivo de entrada será um stream de dados binários
+								std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
 
-							//Serialização é feita pela biblioteca Boost
-							boost::archive::binary_iarchive ib(ifb, boost::archive::no_header);
+								//Serialização é feita pela biblioteca Boost
+								boost::archive::binary_iarchive ib(ifb, boost::archive::no_header);
 
-							//Carrega os dados do BID que estava em disco
-							ib & bbloc[dim_number][bid];
+								//Carrega os dados do BID que estava em disco
+								ib & bbloc[dim_number][bid];
+
+			                    //LÊ AS MEDIDAS DO BLOCO EM DISCO
+
+			                    //Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
+			                    std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
+
+			                    //Indica que o arquivo de entrada será um stream de dados binários
+			                    std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
+
+			                    //Serialização é feita pela biblioteca Boost
+			                    boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
+
+			                    //Carrega os dados de medidas do BID que estavam em disco
+			                    im & bmeas[bid];
+							}
 
 							//Acessa uma única vez a estrutura bCubingBloc para obter os TIDS para esse BID
 							std::vector<int> tids_bbloc = bbloc[dim_number][bid][query[dim_number]];
 
 							//Adiciona às listas de TID os TIDs da dimensão associada à point, para esse BID, com base no valor da consulta
 							tids.insert(std::end(tids), std::begin(tids_bbloc), std::end(tids_bbloc));
-
-		                    //LÊ AS MEDIDAS DO BLOCO EM DISCO
-
-		                    //Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
-		                    std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
-
-		                    //Indica que o arquivo de entrada será um stream de dados binários
-		                    std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
-
-		                    //Serialização é feita pela biblioteca Boost
-		                    boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
-
-		                    //Carrega os dados de medidas do BID que estavam em disco
-		                    im & bmeas[bid];
 
 						}
 
@@ -504,42 +506,45 @@ void BlockCube::QueryCube(std::vector<int> query, std::string queries_ops, std::
 				//Resolveremos primeiro elas, buscando os BIDs associados em disco
 				for(auto & bid : bids_intersection){
 
-					//LÊ O BLOCO DO DISCO
+					if(bbloc[dim_number][bid].empty()){
+						//LÊ O BLOCO DO DISCO
 
-					//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
-                    std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
+						//Esse é o diretório do bloco de BID associado aos dados que desejamos, já existente em disco
+	                    std::string bloc_directory = process_directory + "/dim" + std::to_string(dim_number) + "/bloc" + std::to_string(bid);
 
-					//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
-					std::string bid_filename = bloc_directory + "/tids/" + std::to_string(bid) + ".bin";
+						//Nome do arquivo onde o BID está salvo - diretório do processo, num diretório específico da dimensão
+						std::string bid_filename = bloc_directory + "/tids/" + std::to_string(bid) + ".bin";
 
-					//Indica que o arquivo de entrada será um stream de dados binários
-					std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
+						//Indica que o arquivo de entrada será um stream de dados binários
+						std::ifstream ifb(bid_filename.c_str(), std::ifstream::binary);
 
-					//Serialização é feita pela biblioteca Boost
-					boost::archive::binary_iarchive ib(ifb, boost::archive::no_header);
+						//Serialização é feita pela biblioteca Boost
+						boost::archive::binary_iarchive ib(ifb, boost::archive::no_header);
 
-					//Carrega os dados do BID que estava em disco
-					ib & bbloc[dim_number][bid];
+						//Carrega os dados do BID que estava em disco
+						ib & bbloc[dim_number][bid];
+
+
+	                    //LÊ AS MEDIDAS DO BLOCO EM DISCO
+
+	                    //Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
+	                    std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
+
+	                    //Indica que o arquivo de entrada será um stream de dados binários
+	                    std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
+
+	                    //Serialização é feita pela biblioteca Boost
+	                    boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
+
+	                    //Carrega os dados de medidas do BID que estavam em disco
+	                    im & bmeas[bid];
+					}
 
 					//Para cada par associando um valor de atributo a uma lista de TIDs
 					for (auto& attrib_pair_tids: bbloc[dim_number][bid]) {
 						//Extraia apenas o valor de atributo, o primeiro elemento do pair, e salve na lista de atributos
 						attribs_set.insert(attrib_pair_tids.first);
 					}
-
-                    //LÊ AS MEDIDAS DO BLOCO EM DISCO
-
-                    //Nome do arquivo onde as medidas do BID estão salvas - diretório do processo, num diretório específico da dimensão
-                    std::string bid_meas_filename = bloc_directory + "/meas/" + std::to_string(bid) + ".bin";
-
-                    //Indica que o arquivo de entrada será um stream de dados binários
-                    std::ifstream ifm(bid_meas_filename.c_str(), std::ifstream::binary);
-
-                    //Serialização é feita pela biblioteca Boost
-                    boost::archive::binary_iarchive im(ifm, boost::archive::no_header);
-
-                    //Carrega os dados de medidas do BID que estavam em disco
-                    im & bmeas[bid];
 
 				}
 
