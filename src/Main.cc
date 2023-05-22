@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
             end_compute = Time::now();
 
             //Obtém o uso de memória do processo para o cubo computado
-            std::cout << "(" << my_rank << "): " << "Memory usage (bytes) => " << getPeakRSS() << std::endl;
+            std::cout << "(" << my_rank << "): " << "Memory usage = " << getPeakRSS() << " [B] " << std::endl;
 
             //O processo principal apresenta dados da computação
             if(my_rank==0){
@@ -142,7 +142,7 @@ int main(int argc, char *argv[])
             		std::cout << std::endl;
 
             		//Apresenta um relatório simples de tempo e uso de memória para computação
-                    std::cout << "Cube computed in " << std::chrono::duration_cast<std::chrono::milliseconds> (end_compute - begin_compute).count() << "[ms]" << std::endl;
+                    std::cout << "Cube computed: " << std::chrono::duration<double> (end_compute - begin_compute).count() << " [s] " << std::endl;
 
             		//Espaço deixado intencionalmente em branco
                     std::cout << std::endl;
@@ -162,7 +162,7 @@ int main(int argc, char *argv[])
 
                 if(my_rank==0){
                 		//Apresenta um relatório simples de tempo de resposta da consulta
-                        std::cout << "Query solved in " << std::chrono::duration_cast<std::chrono::microseconds> (end_query - begin_query).count() << "[µs]" << std::endl;
+                        std::cout << "Query " << num_query << " solved: " << std::chrono::duration<double> (end_query - begin_query).count() << " [s] " << std::endl;
 
                 		//Espaço deixado intencionalmente em branco
                         std::cout << std::endl;
