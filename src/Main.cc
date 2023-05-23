@@ -30,6 +30,13 @@ int main(int argc, char *argv[])
 		//Uma forma de listar todas as consultas a serem executadas no cubo
         std::vector<std::vector<int>> queries;
 
+        //Uma ou mais listas de operações do usuário para executar em medidas cubo de dados
+        std::vector<std::string> queries_ops;
+
+        //Esse é um "cache" de consultas respondidas que mapeia a consulta (sequência de inteiros) à quantidade de TIDs encontrados
+        //A ideia é que cada consulta que tenha uma frequência de TIDs maior que 0 seja salva aqui para evitar retrabalho
+        std::map<std::vector<int>, int> query_cache;
+
         //Tempos de computação/consultas (para gelar o relatório de execução)
         TimePoint begin_compute; //Começou a computar (ponto no tempo)
         TimePoint end_compute; //Terminou de computar (ponto no tempo)
@@ -38,6 +45,9 @@ int main(int argc, char *argv[])
 
         //Se TRUE, o cubo será computado sob demanda. Se FALSE, será computado para qualquer consulta
         bool on_demand;
+
+        //Se TRUE, irá omitir as saídas das consultas. Se FALSE, a saída as consultas será apresentada normalmente
+        bool silent;
 
         int my_rank; 	//Rank do processo (0 até N-1)
         int num_procs;  //Numero de processos em execução
@@ -49,8 +59,14 @@ int main(int argc, char *argv[])
         int reading_rate;	//Taxa de leitura dos dados de disco para memória
         int tbloc; //Tamanho do bloco, só é aplicável para o algoritmo bCubing
 
+        //Esse são vectors que guardam o tamanho de partição de cada processo (seja por tuplas ou dimensões)
+        //Se na posição 0 temos o valor 10, significa que o processo 0 usa uma partiçãod de tamanho 10.
+        //Dependendo da entrada fornecida pelo usuário isso signifca 10 tuplas ou 10 dimensões.
+        std::vector<int> tuple_partition_listings;
+        std::vector<int> dim_partition_listings;
+
         //Um objeto da classe Handler, cuja função é garantir que as variáveis passadas pelo usuário sejam válidas
-        Handler h;
+        Handler IO;
 
         //Iniciando ambiente MPI
         MPI_Init(&argc, &argv);
@@ -66,53 +82,95 @@ int main(int argc, char *argv[])
 
         //Verifica todas as variáveis passadas pelo usuário e garanta que sejam válidas
         //Também atribui valores as variáveis que depois serão usadas para computar e consultar cubos.
-        if (!h.ParseInput(argc, argv, my_rank, num_procs, num_dims, num_meas,
-                        num_tuples, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, queries,
-                        cube_algorithm, cube_table, on_demand))
+        if (!IO.ParseInput(argc, argv, my_rank, num_procs, num_dims, num_meas,
+                        num_tuples, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, queries, queries_ops,
+                        cube_algorithm, cube_table, on_demand, silent))
         {
-                return 1;
+        	MPI_Finalize();
         }
+        else{
 
-        //Para permitir a leitura das dimensões do disco em segmentos de mesmo tamanho
-        MPI_Type_contiguous(num_dims, MPI_INT, &MPI_TUPLE_DIMS);
-        MPI_Type_commit(&MPI_TUPLE_DIMS);
+        	//Aloca a memória necessária para os dados de todos os processos
+        	tuple_partition_listings.resize(num_procs);
+        	dim_partition_listings.resize(num_procs);
 
-        //Para permitir a leitura das tuplas do disco em segmentos de mesmo tamanho
-        MPI_Type_contiguous(num_meas, MPI_FLOAT, &MPI_TUPLE_MEAS);
-        MPI_Type_commit(&MPI_TUPLE_MEAS);
+        	//Salva os dados de tamanho de partições, todos os processos tem uma cópia disso
+            MPI_Allgather(&tuple_partition_size, 1, MPI_INT, tuple_partition_listings.data(), 1, MPI_INT, MPI_COMM_WORLD);
+            MPI_Allgather(&dim_partition_size, 1, MPI_INT, dim_partition_listings.data(), 1, MPI_INT, MPI_COMM_WORLD);
 
-        //Execução do algoritmo bCubing - computa e depois executa as consultas
-        if (cube_algorithm == "bcubing")
-        {
-                begin_compute = std::chrono::steady_clock::now();
-                cube = std::make_unique<BlockCube>(BlockCube());
-                cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand);
-                end_compute = std::chrono::steady_clock::now();
+            //Para permitir a leitura das dimensões do disco em segmentos de mesmo tamanho
+            MPI_Type_contiguous(num_dims, MPI_INT, &MPI_TUPLE_DIMS);
+            MPI_Type_commit(&MPI_TUPLE_DIMS);
 
-                begin_query = std::chrono::steady_clock::now();
-                cube->QueryCube(queries, my_rank, num_dims, output_folder, num_procs);
-                end_query = std::chrono::steady_clock::now();
+            //Para permitir a leitura das tuplas do disco em segmentos de mesmo tamanho
+            MPI_Type_contiguous(num_meas, MPI_FLOAT, &MPI_TUPLE_MEAS);
+            MPI_Type_commit(&MPI_TUPLE_MEAS);
+
+            //Execução do algoritmo bCubing - computa e depois executa as consultas
+            if (cube_algorithm == "bcubing")
+            {
+                    //Define o ponteiro único para um cubo do tipo desejado
+                    cube = std::make_unique<BlockCube>(BlockCube());
+            }
+            else if (cube_algorithm == "fragcubing") //Execução do algoritmo fragCubing - computa e depois executa as consultas
+            {
+                	//Define o ponteiro único para um cubo do tipo desejado
+                	cube = std::make_unique<FragCube>(FragCube());
+            }
+
+            //Essa lista fica salva como parte integrante dos dados de qualquer cubo
+            cube->tuple_partition_listings = tuple_partition_listings;
+
+            //Essa lista fica salva como parte integrante dos dados de qualquer cubo
+            cube->dim_partition_listings = dim_partition_listings;
+
+    		//Tempo de início da computação
+            begin_compute = Time::now();
+
+            //Invoca a implementação do método de computação do cubo
+            cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, dim_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand, tuple_partition_listings, dim_partition_listings);
+
+    		//Tempo logo após finalização da computação
+            end_compute = Time::now();
+
+            //Obtém o uso de memória do processo para o cubo computado
+            std::cout << "(" << my_rank << "): " << "Memory usage = " << getPeakRSS() << " [B] " << std::endl;
+
+            //O processo principal apresenta dados da computação
+            if(my_rank==0){
+            		//Espaço deixado intencionalmente em branco
+            		std::cout << std::endl;
+
+            		//Apresenta um relatório simples de tempo e uso de memória para computação
+                    std::cout << "Cube computed: " << std::chrono::duration<double> (end_compute - begin_compute).count() << " [s] " << std::endl;
+
+            		//Espaço deixado intencionalmente em branco
+                    std::cout << std::endl;
+            }
+
+        	//Irá avaliar consulta a consulta que o usuário forneceu
+            for (std::vector<T>::size_type num_query = 0; num_query != queries.size(); num_query++)
+            {
+        		//Tempo de início das consulta
+                begin_query = Time::now();
+
+                //Invoca a implementação do método de consulta do cubo
+            	cube->QueryCube(queries[num_query], queries_ops[num_query], query_cache, my_rank, num_dims, num_tuples, output_folder, num_procs, tuple_partition_size, silent);
+
+        		//Tempo logo após finalização da consulta
+                end_query = Time::now();
+
+                if(my_rank==0){
+                		//Apresenta um relatório simples de tempo de resposta da consulta
+                        std::cout << "Query " << num_query << " solved: " << std::chrono::duration<double> (end_query - begin_query).count() << " [s] " << std::endl;
+
+                		//Espaço deixado intencionalmente em branco
+                        std::cout << std::endl;
+                }
+            }
+
+            MPI_Type_free(&MPI_TUPLE_DIMS);
+            MPI_Type_free(&MPI_TUPLE_MEAS);
+            MPI_Finalize();
         }
-        else if (cube_algorithm == "fragcubing") //Execução do algoritmo fragCubing - computa e depois executa as consultas
-        {
-                begin_compute = std::chrono::steady_clock::now();
-                cube = std::make_unique<FragCube>(FragCube());
-                cube->ComputeCube(cube_table, num_dims, num_meas, tuple_partition_size, reading_rate, tbloc, output_folder, my_rank, queries, on_demand);
-                end_compute = std::chrono::steady_clock::now();
-
-                begin_query = std::chrono::steady_clock::now();
-                cube->QueryCube(queries, my_rank, num_dims, output_folder, num_procs);
-                end_query = std::chrono::steady_clock::now();
-        }
-
-        if(my_rank==0){
-                std::cout << "Time compute = " << std::chrono::duration_cast<std::chrono::seconds> (end_compute - begin_compute).count() << "[s]" << std::endl;
-                std::cout << "Time query = " << std::chrono::duration_cast<std::chrono::microseconds> (end_query - begin_query).count() << "[µs]" << std::endl;
-        }
-
-        MPI_Type_free(&MPI_TUPLE_DIMS);
-        MPI_Type_free(&MPI_TUPLE_MEAS);
-        MPI_Finalize();
-
-        return 0;
 }
